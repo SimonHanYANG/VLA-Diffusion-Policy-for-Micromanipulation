@@ -1,0 +1,11 @@
+name: microsphere
+instruction: "Navigate the microsphere to the red laser dot."
+target_generator: MicrosphereGenerator
+target_params:
+  radius_min: 15.0
+  radius_max: 25.0
+  ring_prob: 0.3
+  ring_thickness: 3.0
+pid_kp: 0.5
+pid_ki: 0.01
+pid_kd: 0.1

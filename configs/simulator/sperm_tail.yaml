@@ -1,0 +1,9 @@
+name: sperm_tail
+instruction: "Navigate the sperm tail tip to the red laser dot."
+target_generator: SpermTailGenerator
+target_params:
+  line_width: [1.0, 2.5]
+  curve_length_range: [40.0, 100.0]
+pid_kp: 0.35
+pid_ki: 0.005
+pid_kd: 0.05

@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-en="VLA Microscope Navigation — Project Implementation Details" data-zh="VLA 显微镜导航 — 项目实现细节">VLA Microscope Navigation — Project Implementation Details</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d29922;
+    --accent4: #f78166;
+    --code-bg: #1c2128;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ── Lang Toggle ── */
+  .lang-toggle-wrap {
+    position: fixed; top: 12px; right: 20px; z-index: 100;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 22px; padding: 3px;
+  }
+  .lang-btn {
+    border: none; border-radius: 18px; padding: 6px 14px;
+    font-size: 12.5px; cursor: pointer; font-weight: 600;
+    background: transparent; color: var(--text-muted);
+    transition: all 0.2s;
+  }
+  .lang-btn.active { background: var(--accent); color: #fff; }
+  .lang-btn:hover:not(.active) { color: var(--text); }
+
+  /* ── Sidebar ── */
+  nav {
+    position: fixed; top:0; left:0; width:280px; height:100vh;
+    background: var(--surface); border-right:1px solid var(--border);
+    overflow-y: auto; padding: 20px 0; z-index: 10;
+  }
+  nav h2 { padding:0 20px 12px; font-size:15px; color: var(--accent); text-transform:uppercase; letter-spacing:1px; }
+  nav a { display:block; padding:6px 20px; color: var(--text-muted); text-decoration:none; font-size:13px; border-left:2px solid transparent; }
+  nav a:hover, nav a.active { color:var(--text); border-left-color:var(--accent); }
+
+  /* ── Main ── */
+  main { margin-left:280px; padding:40px 60px; max-width:1100px; }
+
+  h1 { font-size:2.2em; margin-bottom:6px; color:#fff; }
+  h1 + p { color:var(--text-muted); font-size:1.05em; margin-bottom:30px; }
+  h2 { font-size:1.6em; margin:44px 0 16px; padding-bottom:8px; border-bottom:1px solid var(--border); color:#fff; }
+  h3 { font-size:1.2em; margin:24px 0 10px; color: var(--accent2); }
+  h4 { font-size:1em; margin:16px 0 6px; color:#fff; }
+
+  /* ── Cards / Grid ── */
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  .grid4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:14px; }
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:8px;
+    padding:18px 20px;
+  }
+  .card h4 { margin-top:0; color:var(--accent); }
+  .card p, .card li { font-size:13px; color:var(--text-muted); }
+  .card ul { padding-left:18px; margin:6px 0 0; }
+
+  /* ── Code ── */
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12.5px; background: var(--code-bg);
+    padding: 1px 5px; border-radius: 4px; color: var(--accent3);
+  }
+  pre {
+    background: var(--code-bg); border:1px solid var(--border); border-radius:8px;
+    padding:16px 20px; overflow-x:auto; font-size:12.5px; line-height:1.5;
+    margin:10px 0 18px;
+  }
+  pre code { background:none; padding:0; color:var(--text); }
+
+  /* ── Badge ── */
+  .badge {
+    display:inline-block; padding:2px 8px; border-radius:12px;
+    font-size:11px; font-weight:600; margin-right:4px;
+  }
+  .b-py { background:#3572A5; color:#fff; }
+  .b-yml { background:#8b949e; color:#fff; }
+  .b-sh { background:#3fb950; color:#000; }
+
+  /* ── Mermaid ── */
+  .mermaid { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:20px; margin:14px 0; }
+
+  /* ── Table ── */
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13px; }
+  th, td { padding:8px 12px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--accent); font-weight:600; }
+  td code { font-size:11.5px; }
+
+  /* ── Cmd Box ── */
+  .cmd-block {
+    background:#0a0f14; border:1px solid var(--accent2); border-radius:8px;
+    padding:14px 18px; margin:8px 0 16px; font-family:monospace; font-size:12.5px;
+  }
+  .cmd-block .prompt { color:var(--accent2); }
+  .cmd-block .comment { color:var(--text-muted); }
+
+  @media (max-width:900px) {
+    nav { display:none; }
+    main { margin-left:0; padding:20px; }
+    .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ LANG TOGGLE ═══════════ -->
+<div class="lang-toggle-wrap">
+  <button class="lang-btn active" id="btn-en" onclick="switchLang('en')">EN</button>
+  <button class="lang-btn" id="btn-zh" onclick="switchLang('zh')">中文</button>
+</div>
+
+<!-- ═══════════ NAV ═══════════ -->
+<nav>
+  <h2 data-en="Contents" data-zh="目录">Contents</h2>
+  <a href="#overview" data-en="Project Overview" data-zh="项目概览">Project Overview</a>
+  <a href="#architecture" data-en="System Architecture" data-zh="系统架构">System Architecture</a>
+  <a href="#simulator" data-en="Simulator Engine" data-zh="模拟器引擎">Simulator Engine</a>
+  <a href="#vla-model" data-en="VLA Model Pipeline" data-zh="VLA 模型管线">VLA Model Pipeline</a>
+  <a href="#data-training" data-en="Data &amp; Training" data-zh="数据与训练">Data &amp; Training</a>
+  <a href="#ui" data-en="UI &amp; Visualization" data-zh="界面与可视化">UI &amp; Visualization</a>
+  <a href="#configs" data-en="Configuration System" data-zh="配置系统">Configuration System</a>
+  <a href="#commands" data-en="All Run Commands" data-zh="全部运行命令">All Run Commands</a>
+</nav>
+
+<main>
+
+<!-- ═══════════ 1. OVERVIEW ═══════════ -->
+<h1 id="overview" data-en="🔬 VLA Microscope Navigation" data-zh="🔬 VLA 显微镜导航">&#x1F52C; VLA Microscope Navigation</h1>
+<p data-en="Vision-Language Guided Micro-Object Navigation via Conditional Diffusion Policy — Full Project Documentation"
+   data-zh="基于条件扩散策略的视觉-语言引导微目标导航 — 完整项目文档">Vision-Language Guided Micro-Object Navigation via Conditional Diffusion Policy — Full Project Documentation</p>
+
+<div class="grid3">
+  <div class="card">
+    <h4 data-en="Goal" data-zh="目标">Goal</h4>
+    <p data-en="Train a conditional Diffusion Policy at scale in a simulated microscope environment, then transfer to real hardware (Nikon Ti2E)."
+       data-zh="在模拟显微镜环境中大规模训练条件扩散策略，然后迁移到真实硬件（Nikon Ti2E）。">Train a conditional Diffusion Policy at scale in a simulated microscope environment, then transfer to real hardware (Nikon Ti2E).</p>
+  </div>
+  <div class="card">
+    <h4 data-en="Approach" data-zh="方法">Approach</h4>
+    <p data-en="CLIP text embeddings condition a 1D Conv U-Net that denoises action sequences. Observations encoded via ResNet-18. DDIM sampling at inference."
+       data-zh="CLIP 文本嵌入条件化 1D 卷积 U-Net 对动作序列去噪。通过 ResNet-18 编码观测。推理时使用 DDIM 采样。">CLIP text embeddings condition a 1D Conv U-Net that denoises action sequences. Observations encoded via ResNet-18. DDIM sampling at inference.</p>
+  </div>
+  <div class="card">
+    <h4 data-en="Scale" data-zh="规模">Scale</h4>
+    <p data-en="30 source files · ~3500 lines · 4 target types · 3 baseline policies · 2 visualization UIs · 7 config files · 4 CLI scripts"
+       data-zh="30 个源文件 · ~3500 行代码 · 4 种目标类型 · 3 个基线策略 · 2 个可视化界面 · 7 个配置文件 · 4 个命令行脚本">30 source files · ~3500 lines · 4 target types · 3 baseline policies · 2 visualization UIs · 7 config files · 4 CLI scripts</p>
+  </div>
+</div>
+
+<div class="grid4" style="margin-top:14px;">
+  <div class="card"><h4>Python</h4><p>3.10</p></div>
+  <div class="card"><h4>PyTorch</h4><p>2.11+cu128</p></div>
+  <div class="card"><h4>CUDA</h4><p>13.1 (RTX 5070 Ti)</p></div>
+  <div class="card"><h4 data-en="Env" data-zh="环境">Env</h4><p>conda <code>diffvla</code></p></div>
+</div>
+
+<!-- ═══════════ 2. ARCHITECTURE ═══════════ -->
+<h2 id="architecture" data-en="System Architecture" data-zh="系统架构">System Architecture</h2>
+
+<div class="mermaid">
+graph TB
+    subgraph CONFIG["⚙️ Configuration / 配置"]
+        YAML["YAML files<br/>7 configs / 7个配置"]
+    end
+
+    subgraph SIM["🔬 Simulator Engine / 模拟器引擎"]
+        STAGE["StageSimulator<br/>Nikon Ti2E-compatible / Nikon Ti2E兼容"]
+        TARGET["Target Generators<br/>4 object types / 4种目标类型"]
+        BG["Background<br/>Perlin + Image / Perlin+图像"]
+        NOISE["Noise Models<br/>4 noise types / 4种噪声"]
+        RENDERER["MicroscopeRenderer<br/>5-step composition / 5步合成"]
+        ENV["MicroscopeEnvironment<br/>Gym-like RL env / 类Gym环境"]
+        PID["PID Expert<br/>Demo generator / 演示生成器"]
+    end
+
+    subgraph DATA["📦 Data Pipeline / 数据管线"]
+        GEN["generate_data.py<br/>multiprocess / 多进程"]
+        DS["TrajectoryDataset<br/>sliding window / 滑动窗口"]
+        AUG["TrajectoryAugmentation<br/>flip + jitter / 翻转+抖动"]
+    end
+
+    subgraph VLA["🧠 VLA Model / VLA 模型"]
+        VE["VisualEncoder<br/>ResNet-18 → 256d"]
+        TE["TextEncoder<br/>CLIP ViT-B/32 → 512d"]
+        CE["ConditionalEmbedding<br/>MLP fusion → 256d / MLP融合"]
+        NS["NoiseScheduler<br/>cosine β + DDIM / 余弦β+DDIM"]
+        UNET["DiffusionUNet1D<br/>1D Conv + FiLM / 1D卷积+FiLM"]
+        DP["DiffusionPolicy<br/>full training + inference / 完整训练+推理"]
+    end
+
+    subgraph BASELINES["📉 Baselines / 基线"]
+        BC["BCPolicy<br/>CNN → MLP → (dx,dy)"]
+        ACT["ACTPolicy<br/>Transformer encoder-decoder / Transformer编解码"]
+    end
+
+    subgraph TRAIN["🏋️ Training / 训练"]
+        TRAINER["Trainer<br/>cosine LR + early stop / 余弦LR+早停"]
+        EVAL["Evaluator<br/>closed-loop eval / 闭环评估"]
+        METRICS["Metrics<br/>success + distance + smoothness / 成功率+距离+平滑度"]
+    end
+
+    subgraph UI["🖥️ Visualization / 可视化"]
+        CV["SimulatorViewer<br/>OpenCV real-time / OpenCV实时"]
+        DASH["TensorBoard + Tkinter Panel<br/>Training curves / 训练曲线 + 推理测试UI"]
+    end
+
+    YAML --> SIM
+    SIM --> GEN
+    GEN --> DS
+    DS --> TRAINER
+    TRAINER --> EVAL
+    VE --> CE
+    TE --> CE
+    CE --> UNET
+    NS --> UNET
+    UNET --> DP
+    DP --> EVAL
+    BC --> EVAL
+    ACT --> EVAL
+    SIM --> CV
+    EVAL --> DASH
+    TRAINER --> DASH
+</div>
+
+<!-- ═══════════ 2.1 PROJECT TREE ═══════════ -->
+<h3 data-en="Project File Tree" data-zh="项目文件树">Project File Tree</h3>
+<pre><code>VLA/
+├── <b>configs/</b>
+│   ├── model/diffusion_policy.yaml
+│   ├── simulator/{default,microsphere,yeast,sperm_head,sperm_tail}.yaml
+│   └── training/default.yaml
+├── <b>src/</b>
+│   ├── interfaces/stage_interface.py        <span data-en="← ABC matching Nikon Ti2E API" data-zh="← 匹配Nikon Ti2E API的抽象基类">← ABC matching Nikon Ti2E API</span>
+│   ├── simulator/
+│   │   ├── stage.py                         <span data-en="← StageSimulator impl" data-zh="← StageSimulator 实现">← StageSimulator impl</span>
+│   │   ├── targets.py                       <span data-en="← 4 target generators" data-zh="← 4种目标生成器">← 4 target generators</span>
+│   │   ├── background.py                    <span data-en="← Perlin + image backgrounds" data-zh="← Perlin + 图像背景">← Perlin + image backgrounds</span>
+│   │   ├── noise.py                         <span data-en="← 4 noise models" data-zh="← 4种噪声模型">← 4 noise models</span>
+│   │   ├── renderer.py                      <span data-en="← 5-step image compositor" data-zh="← 5步图像合成器">← 5-step image compositor</span>
+│   │   ├── environment.py                   <span data-en="← Gym-like env" data-zh="← 类Gym环境">← Gym-like env</span>
+│   │   └── expert_generator.py              <span data-en="← PID demo generator" data-zh="← PID 演示生成器">← PID demo generator</span>
+│   ├── vla/
+│   │   ├── visual_encoder.py                <span data-en="← ResNet-18 backbone" data-zh="← ResNet-18 骨干网络">← ResNet-18 backbone</span>
+│   │   ├── text_encoder.py                  <span data-en="← CLIP + cache" data-zh="← CLIP + 缓存">← CLIP + cache</span>
+│   │   ├── condition_embed.py               <span data-en="← Visual+text fusion MLP" data-zh="← 视觉+文本融合MLP">← Visual+text fusion MLP</span>
+│   │   ├── noise_scheduler.py               <span data-en="← Cosine β + DDIM" data-zh="← 余弦β + DDIM">← Cosine β + DDIM</span>
+│   │   ├── diffusion_unet.py                <span data-en="← 1D Conv U-Net + FiLM" data-zh="← 1D卷积U-Net + FiLM">← 1D Conv U-Net + FiLM</span>
+│   │   ├── diffusion_policy.py              <span data-en="← Full policy wrapper" data-zh="← 完整策略封装">← Full policy wrapper</span>
+│   │   ├── inference.py                     <span data-en="← Closed-loop controller" data-zh="← 闭环控制器">← Closed-loop controller</span>
+│   │   └── baselines/{bc,act}.py
+│   ├── data/{dataset,augmentation}.py
+│   ├── training/{trainer,evaluator,metrics}.py
+│   ├── ui/{simulator_viewer.py, inference_panel.py}
+│   └── utils/{config,perlin,logger}.py
+├── <b>scripts/</b>
+│   ├── generate_data.py      <span data-en="← PID expert demo generation" data-zh="← PID专家演示生成">← PID expert demo generation</span>
+│   ├── train.py              <span data-en="← Model training" data-zh="← 模型训练">← Model training</span>
+│   ├── eval.py               <span data-en="← Policy evaluation" data-zh="← 策略评估">← Policy evaluation</span>
+│   └── run_inference_panel.py <span data-en="← Inference panel launcher" data-zh="← 推理面板启动器">← Inference panel launcher</span>
+└── requirements.txt</code></pre>
+
+<!-- ═══════════ 3. SIMULATOR ═══════════ -->
+<h2 id="simulator" data-en="🔬 Simulator Engine" data-zh="🔬 模拟器引擎">&#x1F52C; Simulator Engine</h2>
+
+<div class="grid2">
+  <div class="card">
+    <h4>StageSimulator</h4>
+    <p data-en="In-memory stage tracking XY position in <b>micrometers</b>. Matches real Nikon Ti2E API exactly. Range: ±25mm XY, 0-5mm Z. Includes connect/dispose lifecycle hooks."
+       data-zh="内存中载物台跟踪 XY 位置，单位<b>微米</b>。与真实 Nikon Ti2E API 完全匹配。范围：XY ±25mm，Z 0-5mm。包含 connect/dispose 生命周期钩子。">In-memory stage tracking XY position in <b>micrometers</b>. Matches real Nikon Ti2E API exactly. Range: ±25mm XY, 0-5mm Z. Includes connect/dispose lifecycle hooks.</p>
+    <p><code>src/simulator/stage.py:1-59</code></p>
+  </div>
+  <div class="card">
+    <h4>StageInterface (ABC)</h4>
+    <p data-en='Abstract interface: <code>connect</code>, <code>dispose</code>, <code>move_xy_to_absolute</code>, <code>move_xy_relative</code>, <code>get_xy_position</code>, <code>move_z_*</code>, <code>get_z_position</code>. Enables one-line swap between simulator and real hardware.'
+       data-zh='抽象接口：<code>connect</code>, <code>dispose</code>, <code>move_xy_to_absolute</code>, <code>move_xy_relative</code>, <code>get_xy_position</code>, <code>move_z_*</code>, <code>get_z_position</code>。支持一行代码在模拟器与真实硬件之间切换。'>Abstract interface: <code>connect</code>, <code>dispose</code>, <code>move_xy_to_absolute</code>, <code>move_xy_relative</code>, <code>get_xy_position</code>, <code>move_z_*</code>, <code>get_z_position</code>. Enables one-line swap between simulator and real hardware.</p>
+    <p><code>src/interfaces/stage_interface.py:1-52</code></p>
+  </div>
+</div>
+
+<h3 data-en="Target Generators (Strategy Pattern)" data-zh="目标生成器（策略模式）">Target Generators (Strategy Pattern)</h3>
+<table>
+  <tr>
+    <th data-en="Generator" data-zh="生成器">Generator</th>
+    <th data-en="Shape" data-zh="形状">Shape</th>
+    <th data-en="Key Parameters" data-zh="关键参数">Key Parameters</th>
+    <th data-en="Reference Point" data-zh="参考点">Reference Point</th>
+    <th data-en="Difficulty" data-zh="难度">Difficulty</th>
+  </tr>
+  <tr>
+    <td><code>MicrosphereGenerator</code></td>
+    <td data-en="Circle + ring texture" data-zh="圆形 + 环状纹理">Circle + ring texture</td>
+    <td data-en="radius 15–25px, ring_prob=0.3" data-zh="半径 15–25px, 环概率=0.3">radius 15–25px, ring_prob=0.3</td>
+    <td data-en="Center" data-zh="中心">Center</td>
+    <td data-en="★ Easy" data-zh="★ 简单">&#x2605; Easy</td>
+  </tr>
+  <tr>
+    <td><code>YeastGenerator</code></td>
+    <td data-en="Ellipse + sinusoidal bumps" data-zh="椭圆 + 正弦凸起">Ellipse + sinusoidal bumps</td>
+    <td data-en="major 20–35px, 3–7 bumps" data-zh="长轴 20–35px, 3–7 个凸起">major 20–35px, 3–7 bumps</td>
+    <td data-en="Centroid" data-zh="质心">Centroid</td>
+    <td data-en="★★ Medium" data-zh="★★ 中等">&#x2605;&#x2605; Medium</td>
+  </tr>
+  <tr>
+    <td><code>SpermHeadGenerator</code></td>
+    <td data-en="Ellipse + tapered tip" data-zh="椭圆 + 锥形尖端">Ellipse + tapered tip</td>
+    <td data-en="major 18–28px, sharpness 2–5" data-zh="长轴 18–28px, 尖端锐度 2–5">major 18–28px, sharpness 2–5</td>
+    <td data-en="Centroid" data-zh="质心">Centroid</td>
+    <td data-en="★★ Medium" data-zh="★★ 中等">&#x2605;&#x2605; Medium</td>
+  </tr>
+  <tr>
+    <td><code>SpermTailGenerator</code></td>
+    <td data-en="Cubic Bezier curve + head" data-zh="三次贝塞尔曲线 + 头部">Cubic Bezier curve + head</td>
+    <td data-en="length 40–100px, width 1–2.5px" data-zh="长度 40–100px, 宽度 1–2.5px">length 40–100px, width 1–2.5px</td>
+    <td data-en="Curve tip (endpoint)" data-zh="曲线尖端（终点）">Curve tip (endpoint)</td>
+    <td data-en="★★★ Hard" data-zh="★★★ 困难">&#x2605;&#x2605;&#x2605; Hard</td>
+  </tr>
+</table>
+
+<div class="card" style="margin-top:14px;">
+  <h4 data-en="Data Structure: TargetRender" data-zh="数据结构：TargetRender">Data Structure: TargetRender</h4>
+  <pre><code>@dataclass
+class TargetRender:
+    mask: np.ndarray           <span data-en="# (H, W) uint8, 255=foreground" data-zh="# (H, W) uint8, 255=前景"># (H, W) uint8, 255=foreground</span>
+    reference_point: (x, y)    <span data-en="# control point for PID" data-zh="# PID 控制点"># control point for PID</span>
+    label: str                 <span data-en="# task name" data-zh="# 任务名称"># task name</span></code></pre>
+</div>
+
+<h3 data-en="MicroscopeRenderer — 5-Step Composition Pipeline" data-zh="MicroscopeRenderer — 5 步合成管线">MicroscopeRenderer — 5-Step Composition Pipeline</h3>
+<div class="mermaid">
+flowchart LR
+    A["Background<br/>Perlin/Image"] --> B["Paste Target<br/>alpha blending / alpha混合"]
+    B --> C["Red Laser Dot<br/>3px circle, center / 中心3px圆"]
+    C --> D["Domain Randomization<br/>brightness/contrast/blur<br/>亮度/对比度/模糊"]
+    D --> E["Noise Models<br/>Gaussian+SP+flicker+motion<br/>高斯+椒盐+闪烁+运动"]
+    E --> F["Output (H,W,3) BGR<br/>输出"]
+</div>
+
+<p data-en="Source: <code>src/simulator/renderer.py:40-93</code>. Target pasted with partial visibility handling (edge clipping). Laser fixed at image center. Domain randomization applied probabilistically (50% brightness, 50% contrast, 30% blur)."
+   data-zh="源码：<code>src/simulator/renderer.py:40-93</code>。目标粘贴支持局部可见性处理（边缘裁剪）。激光固定在图像中心。域随机化按概率应用（50% 亮度、50% 对比度、30% 模糊）。">Source: <code>src/simulator/renderer.py:40-93</code>. Target pasted with partial visibility handling (edge clipping). Laser fixed at image center. Domain randomization applied probabilistically (50% brightness, 50% contrast, 30% blur).</p>
+
+<h3 data-en="Noise Models" data-zh="噪声模型">Noise Models</h3>
+<table>
+  <tr><th data-en="Model" data-zh="模型">Model</th><th data-en="Parameters" data-zh="参数">Parameters</th><th data-en="Probability" data-zh="概率">Probability</th></tr>
+  <tr><td data-en="Gaussian" data-zh="高斯噪声">Gaussian</td><td>σ = 5.0</td><td data-en="100% (every frame)" data-zh="100%（每帧）">100% (every frame)</td></tr>
+  <tr><td data-en="Salt &amp; Pepper" data-zh="椒盐噪声">Salt &amp; Pepper</td><td data-en="2% pixel density" data-zh="2% 像素密度">2% pixel density</td><td data-en="50% per frame" data-zh="50%/帧">50% per frame</td></tr>
+  <tr><td data-en="Illumination Flicker" data-zh="光照闪烁">Illumination Flicker</td><td data-en="±30% intensity change" data-zh="±30% 强度变化">±30% intensity change</td><td data-en="10% per frame" data-zh="10%/帧">10% per frame</td></tr>
+  <tr><td data-en="Motion Blur" data-zh="运动模糊">Motion Blur</td><td data-en="kernel 3–5, random angle" data-zh="核 3–5, 随机角度">kernel 3–5, random angle</td><td data-en="5% per frame" data-zh="5%/帧">5% per frame</td></tr>
+</table>
+<p data-en="Source: <code>src/simulator/noise.py:1-62</code>. Motion blur uses proper 2D directional kernel + <code>cv2.filter2D</code>."
+   data-zh="源码：<code>src/simulator/noise.py:1-62</code>。运动模糊使用正确的 2D 方向核 + <code>cv2.filter2D</code>。">Source: <code>src/simulator/noise.py:1-62</code>. Motion blur uses proper 2D directional kernel + <code>cv2.filter2D</code>.</p>
+
+<h3>MicroscopeEnvironment (Gym-like)</h3>
+<table>
+  <tr><th>Method</th><th>Signature</th><th data-en="Behavior" data-zh="行为">Behavior</th></tr>
+  <tr>
+    <td><code>reset(seed)</code></td>
+    <td>→ (image, info)</td>
+    <td data-en="Random target + start 50-200px from laser. Scale factor ±10% noise. Render first frame."
+        data-zh="随机目标 + 距激光 50-200px 起始位置。比例因子 ±10% 噪声。渲染第一帧。">Random target + start 50-200px from laser. Scale factor ±10% noise. Render first frame.</td>
+  </tr>
+  <tr>
+    <td><code>step(dx, dy)</code></td>
+    <td>→ (image, reward, done, info)</td>
+    <td data-en="Move object in pixel space. Compute distance. Reward = -distance. Done when <2px."
+        data-zh="在像素空间中移动目标。计算距离。奖励 = -距离。距离 < 2px 时完成。">Move object in pixel space. Compute distance. Reward = -distance. Done when &lt;2px.</td>
+  </tr>
+  <tr>
+    <td><code>render()</code></td>
+    <td>→ image</td>
+    <td data-en="Return cached BGR image." data-zh="返回缓存的 BGR 图像。">Return cached BGR image.</td>
+  </tr>
+  <tr>
+    <td><code>get_target_reference_point()</code></td>
+    <td>→ (x, y)</td>
+    <td data-en="Returns target's control point for PID." data-zh="返回目标的 PID 控制点。">Returns target's control point for PID.</td>
+  </tr>
+</table>
+
+<div class="card" style="margin-top:14px;">
+  <h4 data-en="Kinematics Detail" data-zh="运动学细节">Kinematics Detail</h4>
+  <p data-en="Object moves in image opposite to stage movement. <code>target_position += (dx, dy)</code> while <code>stage.move_xy_relative(-dx * scale, -dy * scale)</code>. Scale factor = <code>um_per_pixel * (1.0 ± 10%)</code> per episode. Distance computed from target's <b>reference point</b> (mask center for most types, tip for tail) to laser dot center."
+     data-zh="目标在图像中的移动方向与载物台移动方向相反。<code>target_position += (dx, dy)</code>，同时 <code>stage.move_xy_relative(-dx * scale, -dy * scale)</code>。比例因子 = <code>um_per_pixel * (1.0 ± 10%)</code> 每轮变化。距离从目标<b>参考点</b>（大多数类型为掩码中心，尾部为尖端）到激光点中心计算。">Object moves in image opposite to stage movement... Distance computed from target's <b>reference point</b> to laser dot center.</p>
+</div>
+
+<h3 data-en="Expert PID Demonstration Generator" data-zh="专家 PID 演示生成器">Expert PID Demonstration Generator</h3>
+<p data-en="2D discrete PID controller <code>Kp=0.35~0.5, Ki=0.005~0.01, Kd=0.05~0.1</code> (tuned per task). Adds 5% action noise for human-like jitter. Saves each trajectory as:"
+   data-zh="2D 离散 PID 控制器 <code>Kp=0.35~0.5, Ki=0.005~0.01, Kd=0.05~0.1</code>（每个任务单独调参）。添加 5% 动作噪声模拟人为抖动。每条轨迹保存格式：">2D discrete PID controller <code>Kp=0.35~0.5, Ki=0.005~0.01, Kd=0.05~0.1</code> (tuned per task). Adds 5% action noise for human-like jitter. Saves each trajectory as:</p>
+<pre><code>traj_XXXXX/
+├── images/0000.jpg ... NNNN.jpg    <span data-en="← JPEG quality 90" data-zh="← JPEG 质量 90">← JPEG quality 90</span>
+├── actions.npy                      <span data-en="← (T, 2) float32" data-zh="← (T, 2) float32">← (T, 2) float32</span>
+├── positions.npy                    <span data-en="← (T, 2) float32" data-zh="← (T, 2) float32">← (T, 2) float32</span>
+└── meta.json                        <span data-en="← task, seed, PID gains, scale_factor" data-zh="← 任务, 种子, PID参数, 比例因子">← task, seed, PID gains, scale_factor</span></code></pre>
+
+<!-- ═══════════ 4. VLA MODEL ═══════════ -->
+<h2 id="vla-model" data-en="🧠 VLA Model Pipeline" data-zh="🧠 VLA 模型管线">&#x1F9E0; VLA Model Pipeline</h2>
+
+<div class="mermaid">
+flowchart TB
+    subgraph INPUTS["Training Inputs / 训练输入"]
+        OBS["Observations / 观测<br/>(B, 2, 3, 224, 224)"]
+        ACT["Actions / 动作<br/>(B, 10, 2)"]
+        TXT["Text Embeddings / 文本嵌入<br/>(B, 512)"]
+    end
+
+    subgraph ENCODERS["Encoders / 编码器"]
+        VE["VisualEncoder<br/>ResNet-18 → 256d"]
+        CE["ConditionalEmbedding<br/>MLP(256+512→256)"]
+    end
+
+    subgraph DIFFUSION["Diffusion Process / 扩散过程"]
+        NOISE["Sample ε ~ N(0,I)<br/>采样噪声"]
+        NOISIFY["x_t = √ᾱ_t * x_0 + √(1-ᾱ_t) * ε<br/>前向加噪"]
+        UNET["DiffusionUNet1D<br/>noise_pred = UNet(x_t, t, cond)"]
+        LOSS["MSE(noise_pred, ε)<br/>均方误差"]
+    end
+
+    OBS --> VE
+    VE --> CE
+    TXT --> CE
+    CE -->|"condition / 条件 (B,256)"| UNET
+    ACT --> NOISIFY
+    NOISE --> NOISIFY
+    NOISIFY -->|"noisy action / 加噪动作 (B,2,10)"| UNET
+    UNET --> LOSS
+</div>
+
+<h3>VisualEncoder <span class="badge b-py">src/vla/visual_encoder.py</span></h3>
+<div class="card">
+  <p data-en="ResNet-18 (pretrained on ImageNet). First convolution expanded to accept <code>obs_horizon × 3</code> channels (6 for 2-frame history). New channels replicate pretrained weights cyclically. Output: <code>AdaptiveAvgPool2d → Linear(512, 256) → ReLU → LayerNorm</code>. <b>256-dim feature vector.</b>"
+     data-zh="ResNet-18（ImageNet 预训练）。第一层卷积扩展为 <code>obs_horizon × 3</code> 通道（2 帧历史 = 6 通道）。新通道循环复制预训练权重。输出：<code>AdaptiveAvgPool2d → Linear(512, 256) → ReLU → LayerNorm</code>。<b>256 维特征向量。</b>">ResNet-18 (pretrained on ImageNet). First convolution expanded to accept <code>obs_horizon × 3</code> channels... Output: <b>256-dim feature vector.</b></p>
+</div>
+
+<h3>TextEncoder <span class="badge b-py">src/vla/text_encoder.py</span></h3>
+<div class="card">
+  <p data-en="CLIP ViT-B/32 (frozen) via HuggingFace transformers. Task instructions encoded <b>once and cached</b> to <code>data/text_embeddings.pt</code>. Never loaded during training — only the 512-dim cached vectors are used."
+     data-zh="CLIP ViT-B/32（冻结）通过 HuggingFace transformers 加载。任务指令<b>一次性编码并缓存</b>到 <code>data/text_embeddings.pt</code>。训练期间不加载 CLIP 模型——仅使用 512 维缓存向量。">CLIP ViT-B/32 (frozen) via HuggingFace transformers. Task instructions encoded <b>once and cached</b> to <code>data/text_embeddings.pt</code>. Never loaded during training — only the 512-dim cached vectors are used.</p>
+  <table>
+    <tr><th data-en="Task" data-zh="任务">Task</th><th data-en="Instruction" data-zh="指令">Instruction</th></tr>
+    <tr><td>microsphere</td><td><code>"Navigate the microsphere to the red laser dot."</code></td></tr>
+    <tr><td>yeast</td><td><code>"Navigate the yeast cell to the red laser dot."</code></td></tr>
+    <tr><td>sperm_head</td><td><code>"Navigate the sperm head to the red laser dot."</code></td></tr>
+    <tr><td>sperm_tail</td><td><code>"Navigate the sperm tail tip to the red laser dot."</code></td></tr>
+  </table>
+</div>
+
+<h3>ConditionalEmbedding <span class="badge b-py">src/vla/condition_embed.py</span></h3>
+<div class="card">
+  <p data-en="<b>Concat(visual:256, text:512) = 768</b> → Linear(768, 512) → ReLU → Dropout(0.1) → Linear(512, 256) → ReLU → Dropout(0.1) → Linear(256, 256) → LayerNorm. Output: <b>256-dim condition vector.</b>"
+     data-zh="<b>拼接(视觉:256, 文本:512) = 768</b> → Linear(768, 512) → ReLU → Dropout(0.1) → Linear(512, 256) → ReLU → Dropout(0.1) → Linear(256, 256) → LayerNorm。输出：<b>256 维条件向量。</b>"><b>Concat(visual:256, text:512) = 768</b> → Linear(768, 512) → ReLU → Dropout(0.1) → Linear(512, 256) → ReLU → Dropout(0.1) → Linear(256, 256) → LayerNorm. Output: <b>256-dim condition vector.</b></p>
+</div>
+
+<h3>NoiseScheduler <span class="badge b-py">src/vla/noise_scheduler.py</span></h3>
+<div class="card">
+  <p data-en="<b>Training:</b> Cosine beta schedule, T=100 steps. Precomputes α, β, ᾱ as registered buffers. Forward: <code>x_t = √ᾱ_t · x_0 + √(1-ᾱ_t) · ε</code>."
+     data-zh="<b>训练：</b>余弦 beta 调度，T=100 步。预计算 α, β, ᾱ 为注册缓冲区。前向：<code>x_t = √ᾱ_t · x_0 + √(1-ᾱ_t) · ε</code>。"><b>Training:</b> Cosine beta schedule, T=100 steps. Precomputes α, β, ᾱ as registered buffers. Forward: <code>x_t = √ᾱ_t · x_0 + √(1-ᾱ_t) · ε</code>.</p>
+  <p data-en="<b>Inference:</b> DDIM sampling with 10 steps (10× speedup). Deterministic reverse: <code>x_{t-1} = √ᾱ_{t-1} · x̂_0 + √(1-ᾱ_{t-1}) · ε̂</code>."
+     data-zh="<b>推理：</b>DDIM 采样 10 步（10 倍加速）。确定性逆扩散：<code>x_{t-1} = √ᾱ_{t-1} · x̂_0 + √(1-ᾱ_{t-1}) · ε̂</code>。"><b>Inference:</b> DDIM sampling with 10 steps (10× speedup). Deterministic reverse: <code>x_{t-1} = √ᾱ_{t-1} · x̂_0 + √(1-ᾱ_{t-1}) · ε̂</code>.</p>
+</div>
+
+<h3>DiffusionUNet1D <span class="badge b-py">src/vla/diffusion_unet.py</span></h3>
+<div class="card">
+  <p data-en="<b>Architecture:</b> 1D convolutional U-Net with FiLM conditioning."
+     data-zh="<b>架构：</b>1D 卷积 U-Net + FiLM 条件化。"><b>Architecture:</b> 1D convolutional U-Net with FiLM conditioning.</p>
+  <p data-en="<b>Input:</b> Noisy actions (B, 2, 10) | <b>Output:</b> Predicted noise (B, 2, 10)"
+     data-zh="<b>输入：</b>加噪动作 (B, 2, 10) | <b>输出：</b>预测噪声 (B, 2, 10)"><b>Input:</b> Noisy actions (B, 2, 10) | <b>Output:</b> Predicted noise (B, 2, 10)</p>
+
+  <h4 data-en="Encoder (3 DownBlock1D levels)" data-zh="编码器（3 级 DownBlock1D）">Encoder (3 DownBlock1D levels)</h4>
+  <p data-en="Each block: <code>Conv1d(k5,s2) → GroupNorm → ReLU → Conv1d(k5,s1) → GroupNorm → FiLM → ReLU + residual</code>. Channel progression: <b>64 → 128 → 256</b>. Spatial: <b>10 → 5 → 3</b>."
+     data-zh="每块：<code>Conv1d(k5,s2) → GroupNorm → ReLU → Conv1d(k5,s1) → GroupNorm → FiLM → ReLU + residual</code>。通道：<b>64 → 128 → 256</b>。空间维度：<b>10 → 5 → 3</b>。">Each block: <code>Conv1d(k5,s2) → GroupNorm → ReLU → Conv1d(k5,s1) → GroupNorm → FiLM → ReLU + residual</code>. Channel progression: <b>64 → 128 → 256</b>. Spatial: <b>10 → 5 → 3</b>.</p>
+
+  <h4 data-en="Bottleneck" data-zh="瓶颈层">Bottleneck</h4>
+  <p data-en="Two Conv1d(k3) + GroupNorm layers with FiLM conditioning. No downsampling."
+     data-zh="两层 Conv1d(k3) + GroupNorm，含 FiLM 条件化。不下采样。">Two Conv1d(k3) + GroupNorm layers with FiLM conditioning. No downsampling.</p>
+
+  <h4 data-en="Decoder (2 UpBlock1D levels with skip connections)" data-zh="解码器（2 级 UpBlock1D + 跳跃连接）">Decoder (2 UpBlock1D levels with skip connections)</h4>
+  <p data-en="Each block: <code>Upsample(×2) → match spatial → Concat(skip) → Conv1d → GN → ReLU → Conv1d → GN → FiLM → ReLU + residual</code>. Spatial alignment via <code>F.interpolate</code>. Final <code>Conv1d(dim, 2, k1)</code> output projection."
+     data-zh="每块：<code>Upsample(×2) → 空间匹配 → 拼接跳跃连接 → Conv1d → GN → ReLU → Conv1d → GN → FiLM → ReLU + residual</code>。通过 <code>F.interpolate</code> 对齐空间维度。最后 <code>Conv1d(dim, 2, k1)</code> 输出投影。">Each block: <code>Upsample(×2) → match spatial → Concat(skip) → Conv1d → GN → ReLU → Conv1d → GN → FiLM → ReLU + residual</code>. Final <code>Conv1d(dim, 2, k1)</code> output projection.</p>
+
+  <h4 data-en="FiLM Conditioning" data-zh="FiLM 条件化">FiLM Conditioning</h4>
+  <p data-en="Timestep embedding (128d sin/cos) → MLP(128, 256, 256). Concat with condition(256) → MLP(512, 256). Each block: <code>scale, shift = Linear(cond, C)</code>. Output: <code>x * (1 + scale) + shift</code>."
+     data-zh="时间步嵌入（128维 sin/cos）→ MLP(128, 256, 256)。拼接条件向量(256) → MLP(512, 256)。每块：<code>scale, shift = Linear(cond, C)</code>。输出：<code>x * (1 + scale) + shift</code>。">Timestep embedding (128d sin/cos) → MLP(128, 256, 256). Concat with condition(256) → MLP(512, 256). Output: <code>x * (1 + scale) + shift</code>.</p>
+</div>
+
+<h3>DiffusionPolicy <span class="badge b-py">src/vla/diffusion_policy.py</span></h3>
+<div class="card">
+  <h4 data-en="Training: compute_loss" data-zh="训练：compute_loss">Training: <code>compute_loss(obs_seq, action_seq, text_emb)</code></h4>
+  <ol>
+    <li data-en="Encode observations → visual features (256d)" data-zh="编码观测 → 视觉特征 (256d)">Encode observations → visual features (256d)</li>
+    <li data-en="Fuse visual + text embeddings → condition vector (256d)" data-zh="融合视觉+文本嵌入 → 条件向量 (256d)">Fuse visual + text embeddings → condition vector (256d)</li>
+    <li data-en="Sample noise ε ~ N(0,I), timestep t ~ U(0,100)" data-zh="采样噪声 ε ~ N(0,I)，时间步 t ~ U(0,100)">Sample noise ε ~ N(0,I), timestep t ~ U(0,100)</li>
+    <li data-en="Noisify actions: x_t = scheduler.add_noise(x_0, ε, t)" data-zh="加噪动作：x_t = scheduler.add_noise(x_0, ε, t)">Noisify actions: x_t = scheduler.add_noise(x_0, ε, t)</li>
+    <li data-en="UNet predicts noise: noise_pred = UNet(x_t, t, cond)" data-zh="UNet 预测噪声：noise_pred = UNet(x_t, t, cond)">UNet predicts noise: noise_pred = UNet(x_t, t, cond)</li>
+    <li data-en="Loss = MSE(noise_pred, ε)" data-zh="Loss = MSE(noise_pred, ε)">Loss = MSE(noise_pred, ε)</li>
+  </ol>
+
+  <h4 data-en="Inference: predict_action" data-zh="推理：predict_action">Inference: <code>predict_action(obs_seq, text_emb)</code></h4>
+  <ol>
+    <li data-en="Encode → condition" data-zh="编码 → 条件向量">Encode → condition</li>
+    <li data-en="Start from random noise x_T ~ N(0,I)" data-zh="从随机噪声 x_T ~ N(0,I) 开始">Start from random noise x_T ~ N(0,I)</li>
+    <li data-en="10 DDIM steps: each predicts noise, then computes x_{t-1}" data-zh="10 步 DDIM：每步预测噪声，然后计算 x_{t-1}">10 DDIM steps: each predicts noise, then computes x_{t-1}</li>
+    <li data-en="Return x_0 as (B, pred_horizon=10, action_dim=2) predicted action sequence" data-zh="返回 x_0 作为 (B, pred_horizon=10, action_dim=2) 预测动作序列">Return x_0 as (B, pred_horizon=10, action_dim=2) predicted action sequence</li>
+  </ol>
+</div>
+
+<h3 data-en="Closed-Loop Inference" data-zh="闭环推理">Closed-Loop Inference</h3>
+<div class="card">
+  <p><code>src/vla/inference.py:12-99</code></p>
+  <pre><code>Algorithm / 算法:
+  obs_history = [env.reset()]
+  while not done:
+      <span data-en="# Build obs_seq from last 2 frames" data-zh="# 从最近 2 帧构建 obs_seq"># Build obs_seq from last 2 frames</span>
+      obs_seq = stack(obs_history[-2:])  <span data-en="# (1, 2, C, H, W)" data-zh="# (1, 2, C, H, W)"># (1, 2, C, H, W)</span>
+      action_seq = policy.predict_action(obs_seq, text_emb)  <span data-en="# (1, 10, 2)" data-zh="# (1, 10, 2)"># (1, 10, 2)</span>
+      first_action = action_seq[0, 0]  <span data-en="# (2,) — receding horizon" data-zh="# (2,) — 滚动时域"># (2,) — receding horizon</span>
+      obs, reward, done, info = env.step(first_action)
+      obs_history.append(obs)</code></pre>
+</div>
+
+<h3 data-en="Baselines" data-zh="基线模型">Baselines</h3>
+<div class="grid2">
+  <div class="card">
+    <h4>BCPolicy <span class="badge b-py">src/vla/baselines/bc.py</span></h4>
+    <p data-en="CNN (ResNet-18, 256d) → MLP(256→128→2). Predicts single-step (dx, dy) with MSE loss. Ignores text embeddings. No temporal reasoning beyond frame stacking."
+       data-zh="CNN（ResNet-18, 256d）→ MLP(256→128→2)。预测单步 (dx, dy)，MSE 损失。忽略文本嵌入。除帧堆叠外无时间推理。">CNN (ResNet-18, 256d) → MLP(256→128→2). Predicts single-step (dx, dy) with MSE loss. Ignores text embeddings.</p>
+    <p><b data-en="Params:" data-zh="参数量：">Params:</b> ~11.5M</p>
+  </div>
+  <div class="card">
+    <h4>ACTPolicy <span class="badge b-py">src/vla/baselines/act.py</span></h4>
+    <p data-en="VisualEncoder(256d) → single memory token → Transformer decoder with 10 learned action query tokens + positional embeddings. 4 encoder + 4 decoder layers. L1 loss on full sequence."
+       data-zh="VisualEncoder(256d) → 单个记忆 token → Transformer 解码器 + 10 个可学习动作查询 token + 位置嵌入。4 层编码器 + 4 层解码器。对整个序列使用 L1 损失。">VisualEncoder(256d) → single memory token → Transformer decoder with 10 learned action query tokens. 4 encoder + 4 decoder layers. L1 loss on full sequence.</p>
+    <p><b data-en="Params:" data-zh="参数量：">Params:</b> ~15M</p>
+  </div>
+</div>
+
+<!-- ═══════════ 5. DATA & TRAINING ═══════════ -->
+<h2 id="data-training" data-en="📦 Data &amp; Training Pipeline" data-zh="📦 数据与训练管线">&#x1F4E6; Data &amp; Training Pipeline</h2>
+
+<h3>TrajectoryDataset <span class="badge b-py">src/data/dataset.py</span></h3>
+<div class="card">
+  <p data-en="<b>Sliding window indexing:</b> For each trajectory of length T, generate samples at every valid offset t where <code>t ∈ [0, T-obs_horizon-pred_horizon]</code>."
+     data-zh="<b>滑动窗口索引：</b>对每条长度为 T 的轨迹，在每个有效偏移 t 处生成样本，其中 <code>t ∈ [0, T-obs_horizon-pred_horizon]</code>。"><b>Sliding window indexing:</b> For each trajectory of length T...</p>
+  <table>
+    <tr><th data-en="Component" data-zh="组件">Component</th><th>Shape</th><th data-en="Description" data-zh="描述">Description</th></tr>
+    <tr><td><code>obs_seq</code></td><td>(2, 3, 224, 224)</td><td>images[t : t+2]</td></tr>
+    <tr><td><code>action_seq</code></td><td>(10, 2)</td><td>actions[t+1 : t+11]</td></tr>
+    <tr><td><code>text_emb</code></td><td>(512,)</td><td data-en="Precomputed CLIP embedding" data-zh="预计算的 CLIP 嵌入">Precomputed CLIP embedding</td></tr>
+  </table>
+</div>
+
+<h3>TrajectoryAugmentation <span class="badge b-py">src/data/augmentation.py</span></h3>
+<div class="card">
+  <p data-en="Consistent transforms across all observation frames:" data-zh="所有观测帧使用一致性变换：">Consistent transforms across all observation frames:</p>
+  <ul>
+    <li data-en="<b>Random horizontal flip</b> (50%): flips images + negates action x-component"
+        data-zh="<b>随机水平翻转</b>（50%）：翻转图像 + 取反动作 x 分量"><b>Random horizontal flip</b> (50%): flips images + negates action x-component</li>
+    <li data-en="<b>Brightness/contrast jitter</b> (50%): factor 0.8–1.2 each"
+        data-zh="<b>亮度/对比度抖动</b>（50%）：各 0.8–1.2 倍"><b>Brightness/contrast jitter</b> (50%): factor 0.8–1.2 each</li>
+    <li data-en="<b>Gaussian pixel noise</b> (30%): σ = 3.0"
+        data-zh="<b>高斯像素噪声</b>（30%）：σ = 3.0"><b>Gaussian pixel noise</b> (30%): σ = 3.0</li>
+  </ul>
+</div>
+
+<h3>Trainer <span class="badge b-py">src/training/trainer.py</span></h3>
+<div class="card">
+  <p data-en="<b>Optimizer:</b> AdamW, lr=1e-4, weight_decay=1e-6."
+     data-zh="<b>优化器：</b>AdamW，lr=1e-4，weight_decay=1e-6。"><b>Optimizer:</b> AdamW, lr=1e-4, weight_decay=1e-6.</p>
+  <p data-en="<b>LR Schedule:</b> Cosine decay with 10-epoch linear warmup → 0.5×(1+cos(π·progress))."
+     data-zh="<b>学习率调度：</b>余弦衰减 + 10 epoch 线性预热 → 0.5×(1+cos(π·progress))。"><b>LR Schedule:</b> Cosine decay with 10-epoch linear warmup.</p>
+  <p data-en="<b>Gradient Accumulation:</b> Configurable steps (default 1). Fixed to flush remaining gradients at last batch."
+     data-zh="<b>梯度累积：</b>可配置步数（默认 1）。修复以在最后批次刷新剩余梯度。"><b>Gradient Accumulation:</b> Configurable steps (default 1). Fixed to flush last batch.</p>
+  <p data-en="<b>Early Stopping:</b> Patience=100 epochs on validation loss."
+     data-zh="<b>早停：</b>验证损失 patience=100 epochs。"><b>Early Stopping:</b> Patience=100 epochs on validation loss.</p>
+  <p data-en="<b>Checkpointing:</b> Best → <code>best.pt</code>; periodic → <code>epoch_XXXX.pt</code> every 50 epochs. Saves: model, optimizer, epoch, losses, config."
+     data-zh="<b>检查点：</b>最佳模型 → <code>best.pt</code>；定期快照每 50 epoch → <code>epoch_XXXX.pt</code>。保存：模型、优化器、epoch、损失、配置。"><b>Checkpointing:</b> Best → <code>best.pt</code>; periodic → <code>epoch_XXXX.pt</code> every 50 epochs.</p>
+</div>
+
+<h3 data-en="Evaluation Metrics" data-zh="评估指标">Evaluation Metrics <span class="badge b-py">src/training/metrics.py</span></h3>
+<div class="grid3">
+  <div class="card">
+    <h4 data-en="Success Rate" data-zh="成功率">Success Rate</h4>
+    <p data-en="Fraction of episodes where <code>distance &lt; 2.0 px</code> at termination." data-zh="终止时 <code>distance &lt; 2.0 px</code> 的回合比例。">Fraction of episodes where <code>distance &lt; 2.0 px</code> at termination.</p>
+  </div>
+  <div class="card">
+    <h4 data-en="Final Distance" data-zh="最终距离">Final Distance</h4>
+    <p data-en="Mean Euclidean distance (px) from target reference point to laser dot at episode end." data-zh="回合结束时从目标参考点到激光点的平均欧氏距离（像素）。">Mean Euclidean distance (px) from target reference point to laser dot.</p>
+  </div>
+  <div class="card">
+    <h4 data-en="Smoothness" data-zh="平滑度">Smoothness</h4>
+    <p data-en="Mean absolute angular change between consecutive action vectors. Lower = smoother." data-zh="连续动作向量之间的平均绝对角度变化。越低越平滑。">Mean absolute angular change between consecutive action vectors. Lower = smoother.</p>
+  </div>
+</div>
+
+<!-- ═══════════ 6. UI ═══════════ -->
+<h2 id="ui" data-en="🖥️ UI &amp; Visualization" data-zh="🖥️ 界面与可视化">&#x1F5A5; UI &amp; Visualization</h2>
+
+<div class="grid2">
+  <div class="card">
+    <h4>SimulatorViewer <span class="badge b-py">src/ui/simulator_viewer.py</span></h4>
+    <p data-en="Real-time OpenCV visualization window." data-zh="实时 OpenCV 可视化窗口。">Real-time OpenCV visualization window.</p>
+    <table>
+      <tr><th data-en="Key" data-zh="按键">Key</th><th data-en="Action" data-zh="功能">Action</th></tr>
+      <tr><td data-en="Arrow keys" data-zh="方向键">Arrow keys</td><td data-en="Manual stage movement (5 px/step)" data-zh="手动载物台移动（5 px/步）">Manual stage movement (5 px/step)</td></tr>
+      <tr><td>A</td><td data-en="Toggle auto PID mode (10 Hz)" data-zh="切换自动 PID 模式（10 Hz）">Toggle auto PID mode (10 Hz)</td></tr>
+      <tr><td>S</td><td data-en="Single PID step" data-zh="单步 PID">Single PID step</td></tr>
+      <tr><td>Space</td><td data-en="Pause/Resume" data-zh="暂停/继续">Pause/Resume</td></tr>
+      <tr><td>R</td><td data-en="Reset environment" data-zh="重置环境">Reset environment</td></tr>
+      <tr><td>1–4</td><td data-en="Switch task type" data-zh="切换任务类型">Switch task type</td></tr>
+      <tr><td>Q / ESC</td><td data-en="Quit" data-zh="退出">Quit</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4 data-en="TensorBoard Training Monitor" data-zh="TensorBoard 训练监控">TensorBoard <span class="badge b-py">torch.utils.tensorboard</span></h4>
+    <p data-en="Real-time training metrics logged per epoch to timestamped run directories under <code>data/runs/</code>. Launch with <code>tensorboard --logdir data/runs</code>."
+       data-zh="每 epoch 的训练指标实时记录到 <code>data/runs/</code> 下带时间戳的运行目录中。用 <code>tensorboard --logdir data/runs</code> 启动。">Real-time scalar logging: train/loss, train/lr, val/loss per epoch via SummaryWriter.</p>
+  </div>
+  <div class="card">
+    <h4 data-en="Tkinter Inference Panel" data-zh="Tkinter 推理面板">Inference Panel <span class="badge b-py">src/ui/inference_panel.py</span></h4>
+    <p data-en="Desktop GUI for post-training model testing. Three-panel layout: controls (task selector, noise toggles, step/auto/reset buttons), live image display with trajectory + action arrow overlays, metrics panel (distance, steps, success rate, episode stats)."
+       data-zh="用于训练后模型测试的桌面 GUI。三面板布局：控制面板（任务选择、噪声开关、步进/自动/重置按钮）、实时图像显示（轨迹线 + 动作箭头叠加）、指标面板（距离、步数、成功率、回合统计）。">Desktop testing GUI: load checkpoint → generate random env → run inference → visualize target movement and model predictions in real time.</p>
+    <p data-en="<b>Features:</b> File > Open Model dialog, keyboard shortcuts (Space=Step, A=Auto, R=Reset, 1-4=Task, Q=Quit), cumulative episode statistics, speed slider."
+       data-zh="<b>功能：</b>文件 > 打开模型对话框、键盘快捷键（Space=步进、A=自动、R=重置、1-4=任务、Q=退出）、累积回合统计、速度滑块。"><b>Features:</b> Model loading via menu, task/noise/domain-rand controls, step-by-step or auto-run inference, action arrow + trajectory visualization.</p>
+  </div>
+</div>
+
+<!-- ═══════════ 7. CONFIG SYSTEM ═══════════ -->
+<h2 id="configs" data-en="⚙️ Configuration System" data-zh="⚙️ 配置系统">&#x2699; Configuration System</h2>
+
+<div class="grid3">
+  <div class="card">
+    <h4>SimulatorConfig</h4>
+    <table>
+      <tr><td>image_size</td><td>(224, 224)</td></tr>
+      <tr><td>um_per_pixel</td><td>0.5</td></tr>
+      <tr><td>max_steps</td><td>200</td></tr>
+      <tr><td>success_tolerance</td><td>2.0 px</td></tr>
+      <tr><td>start_distance</td><td>50–200 px</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>NoiseConfig</h4>
+    <table>
+      <tr><td>gaussian_std</td><td>5.0</td></tr>
+      <tr><td>salt_pepper_prob</td><td>0.02</td></tr>
+      <tr><td>flicker_prob</td><td>0.1</td></tr>
+      <tr><td>flicker_intensity</td><td>0.7–1.3</td></tr>
+      <tr><td>motion_blur_prob</td><td>0.05</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>DomainRandConfig</h4>
+    <table>
+      <tr><td>brightness</td><td>0.5–1.5</td></tr>
+      <tr><td>contrast</td><td>0.5–1.5</td></tr>
+      <tr><td>blur_sigma_max</td><td>2.0</td></tr>
+      <tr><td>blur_prob</td><td>0.3</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="grid3" style="margin-top:14px;">
+  <div class="card">
+    <h4>DiffusionPolicyConfig</h4>
+    <table>
+      <tr><td>obs_horizon</td><td>2</td></tr>
+      <tr><td>pred_horizon</td><td>10</td></tr>
+      <tr><td>visual_backbone</td><td>resnet18</td></tr>
+      <tr><td>visual_output_dim</td><td>256</td></tr>
+      <tr><td>text_dim</td><td>512</td></tr>
+      <tr><td>condition_dims</td><td>[512, 256] → 256</td></tr>
+      <tr><td>unet_dims</td><td>[64, 128, 256]</td></tr>
+      <tr><td>diffusion_steps</td><td>100 train / 10 DDIM</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>TrainingConfig</h4>
+    <table>
+      <tr><td>batch_size</td><td>64</td></tr>
+      <tr><td>lr</td><td>1e-4</td></tr>
+      <tr><td>weight_decay</td><td>1e-6</td></tr>
+      <tr><td>epochs</td><td>500</td></tr>
+      <tr><td>warmup</td><td>10 epochs</td></tr>
+      <tr><td>val_split</td><td>10%</td></tr>
+      <tr><td>early_stop</td><td>100 epochs</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4 data-en="Per-Task Configs" data-zh="各任务配置">Per-Task Configs</h4>
+    <p data-en="Each task YAML specifies:" data-zh="每个任务 YAML 包含：">Each task YAML specifies:</p>
+    <ul>
+      <li><code>name</code>, <code>instruction</code></li>
+      <li><code>target_generator</code></li>
+      <li><code>target_params</code></li>
+      <li><code>pid_kp, pid_ki, pid_kd</code></li>
+    </ul>
+  </div>
+</div>
+
+<h3 data-en="Key Design Decisions &amp; Bug Fixes" data-zh="关键设计决策与 Bug 修复">Key Design Decisions &amp; Bug Fixes</h3>
+<div class="card" style="margin-top:14px;">
+  <h4 data-en="Coordinate System" data-zh="坐标系统">Coordinate System</h4>
+  <p data-en="<code>image_size = (H, W)</code> but positions use <code>(x, y) = (col, row) = (W, H)</code>. Laser is <code>(W//2, H//2)</code>, mask shape is <code>(mask_h, mask_w)</code>. Semantically critical for non-square images."
+     data-zh="<code>image_size = (H, W)</code> 但位置使用 <code>(x, y) = (列, 行) = (W, H)</code> 顺序。激光位置为 <code>(W//2, H//2)</code>，掩码形状为 <code>(mask_h, mask_w)</code>。对非正方形图像语义关键。"><code>image_size = (H, W)</code> but positions use <code>(x, y) = (W, H)</code> order.</p>
+  <h4 style="margin-top:8px;" data-en="U-Net Spatial Alignment" data-zh="U-Net 空间对齐">U-Net Spatial Alignment</h4>
+  <p data-en="Horizon=10 → down(5, 3) → up(6, 12), with <code>F.interpolate</code> to match skip spatial dims, plus final interpolation to restore original horizon of 10."
+     data-zh="Horizon=10 → down(5, 3) → up(6, 12)，使用 <code>F.interpolate</code> 匹配跳跃连接的空间维度，最后插值恢复到原始 horizon=10。">Horizon=10 → down(5, 3) → up(6, 12), plus final interpolation to restore horizon=10.</p>
+  <h4 style="margin-top:8px;" data-en="Motion Blur" data-zh="运动模糊">Motion Blur</h4>
+  <p data-en="Replaced incorrect 1D convolution (<code>np.apply_along_axis</code>) with proper 2D directional kernel + <code>cv2.filter2D</code>."
+     data-zh="将错误的 1D 卷积（<code>np.apply_along_axis</code>）替换为正确的 2D 方向核 + <code>cv2.filter2D</code>。">Replaced incorrect <code>np.apply_along_axis</code> with proper 2D kernel + <code>cv2.filter2D</code>.</p>
+  <h4 style="margin-top:8px;" data-en="Gradient Accumulation" data-zh="梯度累积">Gradient Accumulation</h4>
+  <p data-en="Added <code>or last_batch</code> condition to ensure the final partial accumulation batch triggers <code>optimizer.step()</code>."
+     data-zh="添加 <code>or last_batch</code> 条件，确保最后的非完整累积批次触发 <code>optimizer.step()</code>。">Added <code>or last_batch</code> condition in trainer.py to flush final partial accumulation.</p>
+</div>
+
+<!-- ═══════════ 8. ALL COMMANDS ═══════════ -->
+<h2 id="commands" data-en="💻 All Project Run Commands" data-zh="💻 全部项目运行命令">&#x1F4BB; All Project Run Commands</h2>
+
+<h3 data-en="Environment Setup" data-zh="环境搭建">Environment Setup</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# Create and activate conda environment" data-zh="# 创建并激活 conda 环境"># Create and activate conda environment</span>
+<span class="prompt">$</span> conda create -n diffvla python=3.10 -y
+<span class="prompt">$</span> conda activate diffvla
+
+<span class="comment" data-en="# Install PyTorch with CUDA 12.8" data-zh="# 安装 PyTorch + CUDA 12.8"># Install PyTorch with CUDA 12.8</span>
+<span class="prompt">$</span> pip install torch==2.11.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+
+<span class="comment" data-en="# Install other dependencies" data-zh="# 安装其他依赖"># Install other dependencies</span>
+<span class="prompt">$</span> pip install -r requirements.txt</pre>
+</div>
+
+<h3 data-en="Data Generation" data-zh="数据生成">Data Generation</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# Single task" data-zh="# 单个任务"># Single task</span>
+<span class="prompt">$</span> conda activate diffvla
+<span class="prompt">$</span> python scripts/generate_data.py --task microsphere --num-trajectories 5000
+
+<span class="comment" data-en="# All tasks (with 4 parallel workers)" data-zh="# 全部任务（4 并行进程）"># All tasks (with 4 parallel workers)</span>
+<span class="prompt">$</span> python scripts/generate_data.py --all-tasks --num-trajectories 5000 --workers 4
+
+<span class="comment" data-en="# With custom sim config and output path" data-zh="# 自定义模拟器配置和输出路径"># With custom sim config and output path</span>
+<span class="prompt">$</span> python scripts/generate_data.py --task yeast --num-trajectories 2000 \
+    --sim-config configs/simulator/default.yaml \
+    --output-root data/trajectories \
+    --seed 42
+
+<span class="comment" data-en="# Precompute text embeddings" data-zh="# 预计算文本嵌入"># Precompute text embeddings</span>
+<span class="prompt">$</span> python scripts/train.py --precompute-text</pre>
+</div>
+
+<h3 data-en="Training" data-zh="训练">Training</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# Single task" data-zh="# 单个任务"># Single task</span>
+<span class="prompt">$</span> conda activate diffvla
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks microsphere --device cuda
+
+<span class="comment" data-en="# All tasks (joint training)" data-zh="# 全部任务（联合训练）"># All tasks (joint training)</span>
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks all --device cuda
+
+<span class="comment" data-en="# Multiple specific tasks" data-zh="# 多个指定任务"># Multiple specific tasks</span>
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks microsphere,yeast --device cuda
+
+<span class="comment" data-en="# With custom configs" data-zh="# 自定义配置"># With custom configs</span>
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks all \
+    --model-config configs/model/diffusion_policy.yaml \
+    --training-config configs/training/default.yaml \
+    --data-root data/trajectories \
+    --checkpoint-dir data/checkpoints \
+    --device cuda --num-workers 4
+
+<span class="comment" data-en="# Resume from checkpoint" data-zh="# 从检查点恢复训练"># Resume from checkpoint</span>
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks all \
+    --resume data/checkpoints/epoch_0100.pt --device cuda
+
+<span class="comment" data-en="# BC baseline" data-zh="# BC 基线"># BC baseline</span>
+<span class="prompt">$</span> python scripts/train.py --model bc --tasks microsphere --device cuda
+
+<span class="comment" data-en="# ACT baseline" data-zh="# ACT 基线"># ACT baseline</span>
+<span class="prompt">$</span> python scripts/train.py --model act --tasks microsphere --device cuda</pre>
+</div>
+
+<h3 data-en="Evaluation" data-zh="评估">Evaluation</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# Single task evaluation" data-zh="# 单任务评估"># Single task evaluation</span>
+<span class="prompt">$</span> conda activate diffvla
+<span class="prompt">$</span> python scripts/eval.py --checkpoint data/checkpoints/best.pt \
+    --task microsphere --episodes 100
+
+<span class="comment" data-en="# All tasks" data-zh="# 全部任务"># All tasks</span>
+<span class="prompt">$</span> python scripts/eval.py --checkpoint data/checkpoints/best.pt \
+    --all-tasks --episodes 100
+
+<span class="comment" data-en="# Save results to JSON" data-zh="# 保存结果为 JSON"># Save results to JSON</span>
+<span class="prompt">$</span> python scripts/eval.py --checkpoint data/checkpoints/best.pt \
+    --all-tasks --episodes 500 --output data/results/eval_results.json
+
+<span class="comment" data-en="# With specific configs" data-zh="# 指定各项配置"># With specific configs</span>
+<span class="prompt">$</span> python scripts/eval.py --checkpoint data/checkpoints/best.pt \
+    --task sperm_tail --episodes 200 \
+    --sim-config configs/simulator/default.yaml \
+    --model-config configs/model/diffusion_policy.yaml \
+    --text-cache data/text_embeddings.pt \
+    --device cuda --seed 42</pre>
+</div>
+
+<h3 data-en="Visualization &amp; UI" data-zh="可视化与界面">Visualization &amp; UI</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# OpenCV real-time simulator viewer" data-zh="# OpenCV 实时模拟器查看器"># OpenCV real-time simulator viewer</span>
+<span class="prompt">$</span> conda activate diffvla
+<span class="prompt">$</span> python src/ui/simulator_viewer.py
+
+<span class="comment" data-en="# TensorBoard training monitor" data-zh="# TensorBoard 训练监控"># TensorBoard training monitor</span>
+<span class="prompt">$</span> tensorboard --logdir data/runs
+
+<span class="comment" data-en="# Tkinter inference panel (model testing GUI)" data-zh="# Tkinter 推理面板（模型测试 GUI）"># Tkinter inference panel (model testing GUI)</span>
+<span class="prompt">$</span> python scripts/run_inference_panel.py
+<span class="comment" data-en="# or with a specific checkpoint:" data-zh="# 或指定检查点文件："># or with a specific checkpoint:</span>
+<span class="prompt">$</span> python scripts/run_inference_panel.py --checkpoint data/checkpoints/best.pt --device cuda</pre>
+</div>
+
+<h3 data-en="Quick Full Pipeline" data-zh="快速完整流程">Quick Full Pipeline</h3>
+<div class="cmd-block">
+<pre><span class="comment" data-en="# Step 1: Generate 5000 trajectories per task (4 parallel workers)" data-zh="# 第 1 步：每任务生成 5000 条轨迹（4 并行进程）"># Step 1: Generate 5000 trajectories per task (4 parallel workers)</span>
+<span class="prompt">$</span> python scripts/generate_data.py --all-tasks --num-trajectories 5000 --workers 4
+
+<span class="comment" data-en="# Step 2: Train diffusion policy on all tasks" data-zh="# 第 2 步：在所有任务上训练扩散策略"># Step 2: Train diffusion policy on all tasks</span>
+<span class="prompt">$</span> python scripts/train.py --model diffusion_policy --tasks all --device cuda
+
+<span class="comment" data-en="# Step 3: Evaluate the trained model" data-zh="# 第 3 步：评估训练好的模型"># Step 3: Evaluate the trained model</span>
+<span class="prompt">$</span> python scripts/eval.py --checkpoint data/checkpoints/best.pt --all-tasks --episodes 100
+
+<span class="comment" data-en="# Step 4: Launch inference panel for interactive model testing" data-zh="# 第 4 步：启动推理面板进行交互式模型测试"># Step 4: Launch inference panel for interactive model testing</span>
+<span class="prompt">$</span> python scripts/run_inference_panel.py --checkpoint data/checkpoints/best.pt
+
+<span class="comment" data-en="# Step 5 (optional): Monitor training curves with TensorBoard" data-zh="# 第 5 步（可选）：用 TensorBoard 监控训练曲线"># Step 5 (optional): Monitor training curves with TensorBoard</span>
+<span class="prompt">$</span> tensorboard --logdir data/runs</pre>
+</div>
+
+<h3 data-en="Configuration Files Reference" data-zh="配置文件速查">Configuration Files Reference</h3>
+<table>
+  <tr><th>File</th><th data-en="Purpose" data-zh="用途">Purpose</th></tr>
+  <tr><td><code>configs/simulator/default.yaml</code></td><td data-en="Base simulator params" data-zh="基础模拟器参数">Base simulator params</td></tr>
+  <tr><td><code>configs/simulator/microsphere.yaml</code></td><td data-en="Microsphere task + PID" data-zh="微球任务 + PID">Microsphere task + PID</td></tr>
+  <tr><td><code>configs/simulator/yeast.yaml</code></td><td data-en="Yeast task + PID" data-zh="酵母任务 + PID">Yeast task + PID</td></tr>
+  <tr><td><code>configs/simulator/sperm_head.yaml</code></td><td data-en="Sperm head task + PID" data-zh="精子头部任务 + PID">Sperm head task + PID</td></tr>
+  <tr><td><code>configs/simulator/sperm_tail.yaml</code></td><td data-en="Sperm tail task + PID" data-zh="精子尾部任务 + PID">Sperm tail task + PID</td></tr>
+  <tr><td><code>configs/model/diffusion_policy.yaml</code></td><td data-en="Model hyperparameters" data-zh="模型超参数">Model hyperparameters</td></tr>
+  <tr><td><code>configs/training/default.yaml</code></td><td data-en="Training hyperparameters" data-zh="训练超参数">Training hyperparameters</td></tr>
+</table>
+
+<hr style="margin:40px 0; border-color:var(--border);">
+
+<p style="color:var(--text-muted); font-size:12px; text-align:center;">
+  <span data-en="VLA Microscope Navigation Project · 30 Python source files · 4 scripts · 7 configs · 2 UIs · 3 model architectures"
+        data-zh="VLA 显微镜导航项目 · 30 个源文件 · 4 个脚本 · 7 个配置 · 2 个 UI · 3 个模型架构">VLA Microscope Navigation Project · 30 Python source files · 4 scripts · 7 configs · 2 UIs · 3 model architectures</span>
+  <br><span data-en="Generated 2026-05-26 · Conda env:" data-zh="生成日期 2026-05-26 · Conda 环境：">Generated 2026-05-26 · Conda env:</span> <code>diffvla</code> · PyTorch 2.11 + CUDA 12.8
+</p>
+
+</main>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+    primaryColor: '#58a6ff', primaryTextColor: '#fff',
+    primaryBorderColor: '#30363d', lineColor: '#8b949e',
+    secondaryColor: '#161b22', tertiaryColor: '#1c2128',
+    background: '#0d1117', mainBkg: '#161b22',
+    nodeBorder: '#30363d', clusterBkg: '#161b22',
+    clusterBorder: '#30363d', titleColor: '#58a6ff',
+    edgeLabelBackground: '#161b22',
+  }});
+
+  // ── Language Switch ──
+  var LANG_KEY = 'vla-doc-lang';
+
+  function switchLang(lang) {
+    localStorage.setItem(LANG_KEY, lang);
+    document.querySelectorAll('#btn-en, #btn-zh').forEach(function(b) {
+      b.classList.remove('active');
+    });
+    document.getElementById('btn-' + lang).classList.add('active');
+    document.documentElement.lang = lang;
+
+    // Update all translatable elements. For elements containing child nodes
+    // (like <b>, <code>), preserve children and only update the text portion
+    // by rebuilding innerHTML with the translated text plus original children.
+    document.querySelectorAll('[data-en][data-zh]').forEach(function(el) {
+      var txt = el.getAttribute('data-' + lang);
+      // If element has no element children, simple textContent swap
+      var hasElemChild = false;
+      for (var i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === 1) { hasElemChild = true; break; }
+      }
+      if (!hasElemChild) {
+        el.textContent = txt;
+      } else {
+        // Element has child elements (e.g. <b>, <code>).
+        // Clone child elements, wrap everything in a span, parse translated
+        // text to extract text parts, then reassemble.
+        var clone = el.cloneNode(true);
+        // Strategy: walk native child nodes, replace text nodes with translated
+        // text broken at the same positions. Since data-en/zh store plain text,
+        // we just set el.textContent and re-append the original child elements.
+        // This loses inlines — fallback: replace with translated text + children
+        var frag = document.createDocumentFragment();
+        var txtParts = [];
+        var childNodes = Array.from(el.childNodes);
+        for (var j = 0; j < childNodes.length; j++) {
+          var node = childNodes[j];
+          if (node.nodeType === 3) txtParts.push(node.textContent);
+          else if (node.nodeType === 1) txtParts.push('__ELEM__');
+        }
+        // Use the translated text for text parts
+        var translatedOnly = txt;
+        // Reconstruct: split translated text roughly by text-node boundaries
+        var parts = translatedOnly.split(/(?=__ELEM__)/);
+        // Fallback for mixed content: just use translated plain text + re-append children
+        // Simple approach: set textContent then replace the first text node with translated
+        var elemChildren = [];
+        for (var k = 0; k < el.childNodes.length; k++) {
+          if (el.childNodes[k].nodeType === 1) elemChildren.push(el.childNodes[k]);
+        }
+        // Remove all children
+        while (el.firstChild) el.removeChild(el.firstChild);
+        // Put translated text first
+        el.appendChild(document.createTextNode(txt));
+        // Re-append element children
+        elemChildren.forEach(function(c) { el.appendChild(c); });
+      }
+    });
+
+    // Update document title
+    var titleEl = document.querySelector('title');
+    if (titleEl) {
+      var t = titleEl.getAttribute('data-' + lang);
+      if (t) titleEl.textContent = t;
+    }
+  }
+
+  // Init on load
+  (function() {
+    var saved = localStorage.getItem(LANG_KEY) || 'en';
+    switchLang(saved);
+  })();
+</script>
+
+</body>
+</html>

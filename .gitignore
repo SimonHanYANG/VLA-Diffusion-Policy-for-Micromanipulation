@@ -1,0 +1,36 @@
+# Data & large files
+data/
+!data/backgrounds/.gitkeep
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.mp4
+*.avi
+*.mov
+*.zip
+*.tar.gz
+*.rar
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Notebooks
+*.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db

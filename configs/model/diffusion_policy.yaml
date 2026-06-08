@@ -1,0 +1,13 @@
+# Model configuration
+obs_horizon: 2
+pred_horizon: 10
+action_dim: 2
+visual_backbone: "resnet18"
+visual_output_dim: 256
+text_dim: 512
+condition_hidden_dims: [512, 256]
+condition_output_dim: 256
+unet_dims: [64, 128, 256]
+num_diffusion_steps: 100
+num_ddim_steps: 10
+beta_schedule: "cosine"

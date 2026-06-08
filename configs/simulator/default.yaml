@@ -1,0 +1,23 @@
+# Default simulator configuration
+image_size: [224, 224]
+um_per_pixel: 0.5
+um_per_pixel_noise: 0.1
+max_steps_per_episode: 200
+success_tolerance_px: 2.0
+start_distance_min: 50.0
+start_distance_max: 200.0
+
+noise:
+  gaussian_std: 5.0
+  salt_pepper_prob: 0.02
+  flicker_prob: 0.1
+  flicker_intensity_min: 0.7
+  flicker_intensity_max: 1.3
+  motion_blur_kernel_max: 5
+  motion_blur_prob: 0.05
+
+domain_randomization:
+  brightness_range: [0.5, 1.5]
+  contrast_range: [0.5, 1.5]
+  blur_sigma_max: 2.0
+  blur_prob: 0.3
