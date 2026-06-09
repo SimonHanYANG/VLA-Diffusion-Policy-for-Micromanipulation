@@ -164,7 +164,8 @@ class TestNoiseApplicator:
         assert noisy.dtype == np.uint8
 
     def test_salt_pepper_range(self):
-        config = NoiseConfig(gaussian_std=0.0, salt_pepper_prob=1.0, flicker_prob=0.0, motion_blur_prob=0.0)
+        config = NoiseConfig(gaussian_std=0.0, salt_pepper_prob=1.0, flicker_prob=0.0,
+                             motion_blur_prob=0.0, fixed_pattern_prob=0.0)
         applicator = NoiseApplicator(config)
         img = np.ones((100, 100, 3), dtype=np.uint8) * 128
         # The salt-pepper gate triggers ~50% of the time; try multiple seeds
