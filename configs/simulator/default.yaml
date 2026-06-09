@@ -8,16 +8,33 @@ start_distance_min: 50.0
 start_distance_max: 200.0
 
 noise:
-  gaussian_std: 5.0
-  salt_pepper_prob: 0.02
+  gaussian_std: 3.0
+  salt_pepper_prob: 0.01
   flicker_prob: 0.1
   flicker_intensity_min: 0.7
   flicker_intensity_max: 1.3
   motion_blur_kernel_max: 5
   motion_blur_prob: 0.05
+  fixed_pattern_prob: 0.3
+  fixed_pattern_strength: 1.5
 
 domain_randomization:
-  brightness_range: [0.5, 1.5]
-  contrast_range: [0.5, 1.5]
-  blur_sigma_max: 2.0
+  brightness_range: [0.7, 1.3]
+  contrast_range: [0.7, 1.3]
+  blur_sigma_max: 1.5
   blur_prob: 0.3
+
+optics:
+  vignette_prob: 0.7
+  vignette_strength_range: [0.1, 0.4]
+  vignette_power: 2.0
+  psf_prob: 0.5
+  psf_sigma_range: [0.3, 1.2]
+  chromatic_prob: 0.3
+  chromatic_shift_range: [0.3, 1.5]
+
+# Background configuration
+# Set background_type to "image" and background_image_dir to use real microscopy backgrounds
+# Set background_type to "perlin" for synthetic Perlin noise backgrounds
+background_type: "perlin"
+background_image_dir: "data/backgrounds"

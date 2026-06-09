@@ -8,7 +8,7 @@ from src.simulator.noise import NoiseApplicator, NoiseConfig
 from src.simulator.renderer import MicroscopeRenderer
 from src.simulator.stage import StageSimulator
 from src.simulator.targets import TargetGenerator, TargetRender
-from src.utils.config import DomainRandConfig, SimulatorConfig
+from src.utils.config import DomainRandConfig, OpticsConfig, SimulatorConfig
 
 
 class MicroscopeEnvironment:
@@ -39,6 +39,7 @@ class MicroscopeEnvironment:
             background=self.background,
             noise=noise_applicator,
             domain_rand=config.domain_randomization or DomainRandConfig(),
+            optics=config.optics or OpticsConfig(),
         )
 
         # State
@@ -78,7 +79,8 @@ class MicroscopeEnvironment:
 
         # Render first frame
         self._current_image = self.renderer.render(
-            self.target_render.mask, (self.target_position[0], self.target_position[1]), self.rng
+            self.target_render.mask, (self.target_position[0], self.target_position[1]), self.rng,
+            target_texture=self.target_render.texture,
         )
 
         info = self._get_info()
@@ -108,7 +110,8 @@ class MicroscopeEnvironment:
 
         # Render
         self._current_image = self.renderer.render(
-            self.target_render.mask, (self.target_position[0], self.target_position[1]), self.rng
+            self.target_render.mask, (self.target_position[0], self.target_position[1]), self.rng,
+            target_texture=self.target_render.texture,
         )
 
         # Reward: negative distance

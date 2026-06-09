@@ -3,6 +3,7 @@
 Usage:
   python scripts/generate_data.py --task microsphere --num-trajectories 100
   python scripts/generate_data.py --all-tasks --num-trajectories 5000 --workers 4
+  python scripts/generate_data.py --task sperm_head --background-type image --background-dir data/backgrounds
 """
 
 import sys
@@ -15,7 +16,7 @@ import argparse
 import multiprocessing as mp
 from typing import List
 
-from src.simulator.background import PerlinNoiseBackground
+from src.simulator.background import BackgroundGeneratorFactory, PerlinNoiseBackground
 from src.simulator.expert_generator import ExpertDemonstrationGenerator
 from src.simulator.targets import create_target_generator
 from src.utils.config import (
@@ -33,15 +34,24 @@ def generate_task(
     output_root: Path,
     num_trajectories: int,
     seed: int,
+    background_type: str = "perlin",
+    background_dir: str | None = None,
 ) -> Path:
     """Generate trajectories for a single task."""
     target_gen = create_target_generator(
         task_config.target_generator, task_config.target_params
     )
+
+    # Create background generator
+    bg_image_dir = Path(background_dir) if background_dir else None
+    background = BackgroundGeneratorFactory.create(
+        background_type=background_type, image_dir=bg_image_dir
+    )
+
     gen = ExpertDemonstrationGenerator(
         config=sim_config,
         target_generator=target_gen,
-        background=PerlinNoiseBackground(),
+        background=background,
         pid_kp=task_config.pid_kp,
         pid_ki=task_config.pid_ki,
         pid_kd=task_config.pid_kd,
@@ -72,6 +82,11 @@ def main():
                         help="Path to simulator config YAML")
     parser.add_argument("--seed", type=int, default=0,
                         help="Base random seed")
+    parser.add_argument("--background-type", type=str, default="perlin",
+                        choices=["perlin", "image"],
+                        help="Background type: 'perlin' for synthetic, 'image' for real microscopy backgrounds")
+    parser.add_argument("--background-dir", type=str, default="data/backgrounds",
+                        help="Directory containing background images (used when --background-type=image)")
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
@@ -105,7 +120,8 @@ def main():
             for i, tc in enumerate(task_configs):
                 r = pool.apply_async(
                     generate_task,
-                    (tc.name, sim_config, tc, output_root, args.num_trajectories, args.seed + i * 10000),
+                    (tc.name, sim_config, tc, output_root, args.num_trajectories, args.seed + i * 10000,
+                     args.background_type, args.background_dir),
                 )
                 results.append(r)
             for r in results:
@@ -114,10 +130,12 @@ def main():
         for i, tc in enumerate(task_configs):
             print(f"\n{'='*50}")
             print(f"Task: {tc.name} | Instruction: {tc.instruction}")
+            print(f"Background: {args.background_type}")
             print(f"{'='*50}")
             out_dir = generate_task(
                 tc.name, sim_config, tc, output_root,
                 args.num_trajectories, args.seed + i * 10000,
+                args.background_type, args.background_dir,
             )
             print(f"Saved to: {out_dir}")
 

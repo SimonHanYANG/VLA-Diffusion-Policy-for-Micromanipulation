@@ -1,11 +1,12 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
 from src.simulator.background import BackgroundGenerator
-from src.simulator.noise import NoiseApplicator, NoiseConfig
-from src.utils.config import DomainRandConfig
+from src.simulator.noise import NoiseApplicator
+from src.simulator.optics import OpticsProcessor
+from src.utils.config import DomainRandConfig, NoiseConfig, OpticsConfig
 
 
 class MicroscopeRenderer:
@@ -13,10 +14,11 @@ class MicroscopeRenderer:
 
     Composition order:
     1. Generate background
-    2. Paste target object at position
+    2. Paste target object at position (with texture)
     3. Draw red laser dot at image center
-    4. Apply domain randomization (brightness, contrast, blur)
-    5. Apply noise models
+    4. Apply optical effects (vignetting, PSF, chromatic aberration)
+    5. Apply domain randomization (brightness, contrast, blur)
+    6. Apply noise models
     """
 
     def __init__(
@@ -25,11 +27,13 @@ class MicroscopeRenderer:
         background: BackgroundGenerator,
         noise: NoiseApplicator | None = None,
         domain_rand: DomainRandConfig = DomainRandConfig(),
+        optics: OpticsConfig | None = None,
     ):
         self.image_size = image_size
         self.background = background
         self.noise = noise or NoiseApplicator()
         self.domain_rand = domain_rand
+        self.optics = OpticsProcessor(optics or OpticsConfig())
         self.laser_position = (image_size[1] // 2, image_size[0] // 2)
         self.laser_radius = 3
         self.laser_color_bgr = (0, 0, 255)  # Red in BGR
@@ -42,6 +46,7 @@ class MicroscopeRenderer:
         target_mask: np.ndarray,
         target_position: Tuple[float, float],
         rng: np.random.Generator,
+        target_texture: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Render a complete microscope image.
 
@@ -49,6 +54,7 @@ class MicroscopeRenderer:
             target_mask: (H, W) uint8 mask of the target (255=target).
             target_position: (x, y) center position of the target in the rendered image.
             rng: random generator for noise and domain randomization.
+            target_texture: (H, W) float32 intensity map. If None, uses default (200).
 
         Returns:
             (H, W, 3) BGR uint8 image.
@@ -59,7 +65,7 @@ class MicroscopeRenderer:
         bg = self.background.generate((w, h), rng)
         image = cv2.cvtColor(bg, cv2.COLOR_GRAY2BGR)
 
-        # 2. Paste target at position
+        # 2. Paste target at position (with texture)
         target_h, target_w = target_mask.shape
         tx = int(round(target_position[0] - target_w / 2))
         ty = int(round(target_position[1] - target_h / 2))
@@ -79,15 +85,26 @@ class MicroscopeRenderer:
             dst_region = image[dst_y1:dst_y2, dst_x1:dst_x2]
 
             alpha = (src_region / 255.0)[:, :, np.newaxis]
-            dst_region[:] = (alpha * 200 + (1 - alpha) * dst_region).astype(np.uint8)
+
+            # Use texture if available, otherwise default to 200
+            if target_texture is not None:
+                tex_region = target_texture[src_y1:src_y2, src_x1:src_x2]
+                target_value = tex_region[:, :, np.newaxis]
+            else:
+                target_value = 200
+
+            dst_region[:] = (alpha * target_value + (1 - alpha) * dst_region).astype(np.uint8)
 
         # 3. Red laser dot at center
         cv2.circle(image, self.laser_position, self.laser_radius, self.laser_color_bgr, -1)
 
-        # 4. Domain randomization
+        # 4. Optical effects (vignetting, PSF, chromatic aberration)
+        image = self.optics.apply(image, rng)
+
+        # 5. Domain randomization
         image = self._apply_domain_randomization(image, rng)
 
-        # 5. Noise
+        # 6. Noise
         image = self.noise.apply(image, rng)
 
         return image

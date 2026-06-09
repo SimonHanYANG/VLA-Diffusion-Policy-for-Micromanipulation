@@ -2,7 +2,53 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Tuple
 
+import cv2
 import numpy as np
+
+from src.utils.perlin import generate_perlin_noise
+
+
+def _generate_target_texture(
+    shape: Tuple[int, int],
+    base_intensity: float,
+    rng: np.random.Generator,
+    texture_scale: float = 30.0,
+    texture_strength: float = 0.15,
+) -> np.ndarray:
+    """Generate a textured intensity map for a target.
+
+    Uses Perlin noise to add subtle internal texture, making the target
+    look more like a real microscopy object rather than a flat gray shape.
+
+    Args:
+        shape: (H, W) of the target region.
+        base_intensity: Base gray level (e.g. 70 for sperm head).
+        rng: Random generator.
+        texture_scale: Scale of Perlin noise features.
+        texture_strength: How much texture varies (0-1).
+
+    Returns:
+        (H, W) float32 intensity map.
+    """
+    h, w = shape
+    seed = rng.integers(0, 2**31)
+    noise = generate_perlin_noise(
+        width=w, height=h, scale=texture_scale,
+        octaves=3, persistence=0.5, lacunarity=2.0, seed=seed,
+    )
+    # noise is in [0, 1], center around 0
+    texture = base_intensity * (1.0 + texture_strength * (noise - 0.5) * 2)
+    return np.clip(texture, 0, 255).astype(np.float32)
+
+
+def _radial_gradient(shape: Tuple[int, int], center: Tuple[float, float]) -> np.ndarray:
+    """Generate a radial distance map normalized to [0, 1]."""
+    h, w = shape
+    y_grid, x_grid = np.ogrid[:h, :w]
+    r = np.sqrt((x_grid - center[0]) ** 2 + (y_grid - center[1]) ** 2)
+    r_max = max(np.sqrt(center[0] ** 2 + center[1] ** 2),
+                np.sqrt((w - center[0]) ** 2 + (h - center[1]) ** 2))
+    return (r / r_max).astype(np.float32)
 
 
 @dataclass
@@ -10,6 +56,7 @@ class TargetRender:
     mask: np.ndarray
     reference_point: Tuple[float, float]
     label: str
+    texture: np.ndarray | None = None  # (H, W) float32 intensity map, None = use default (200)
 
 
 class TargetGenerator(ABC):
@@ -19,7 +66,14 @@ class TargetGenerator(ABC):
 
 
 class MicrosphereGenerator(TargetGenerator):
-    """Rigid circle with solid or ring texture, radius 15-25 px."""
+    """Rigid circle with solid or ring texture, radius 15-25 px.
+
+    Real microspheres appear as dark circular objects with:
+    - Subtle internal texture (not uniform gray)
+    - Slightly brighter center highlight
+    - Soft edge falloff
+    - Intensity range ~80-120 (not 200)
+    """
 
     def __init__(self, radius_min: float = 15.0, radius_max: float = 25.0,
                  ring_prob: float = 0.3, ring_thickness: float = 3.0):
@@ -44,11 +98,28 @@ class MicrosphereGenerator(TargetGenerator):
             mask = (255 * (1.0 - np.clip((dist - radius + sigma) / (2 * sigma), 0.0, 1.0))).astype(np.uint8)
             mask[dist <= radius - sigma] = 255
 
-        return TargetRender(mask=mask, reference_point=(cx, cy), label="microsphere")
+        # Generate realistic texture
+        base_intensity = rng.uniform(80, 120)
+        texture = _generate_target_texture((h, w), base_intensity, rng, texture_scale=20.0)
+
+        # Add center highlight (real microspheres have a bright spot)
+        highlight_strength = rng.uniform(0.05, 0.15)
+        highlight_sigma = radius * 0.4
+        highlight = np.exp(-dist ** 2 / (2 * highlight_sigma ** 2))
+        texture = texture * (1.0 + highlight_strength * highlight)
+
+        return TargetRender(mask=mask, reference_point=(cx, cy), label="microsphere", texture=texture)
 
 
 class YeastGenerator(TargetGenerator):
-    """Ellipse with sinusoidal bumps on perimeter, major axis 20-35 px."""
+    """Ellipse with sinusoidal bumps on perimeter, major axis 20-35 px.
+
+    Real yeast cells appear as:
+    - Medium-dark elliptical blobs (~70-110)
+    - Internal granular texture (organelles)
+    - Occasional brighter vacuole spots
+    - Soft edges
+    """
 
     def __init__(self, major_min: float = 20.0, major_max: float = 35.0,
                  aspect_ratio_range: Tuple[float, float] = (0.6, 0.9),
@@ -93,11 +164,34 @@ class YeastGenerator(TargetGenerator):
         mask = (255 * (1.0 - np.clip((r_actual - r_target + sigma) / (2 * sigma), 0.0, 1.0))).astype(np.uint8)
         mask[r_actual <= r_target - sigma] = 255
 
-        return TargetRender(mask=mask, reference_point=(cx, cy), label="yeast")
+        # Generate realistic texture with granular appearance
+        base_intensity = rng.uniform(70, 110)
+        texture = _generate_target_texture((h, w), base_intensity, rng, texture_scale=15.0, texture_strength=0.2)
+
+        # Add vacuole-like brighter spots (1-3 random spots inside the cell)
+        n_vacuoles = rng.integers(1, 4)
+        for _ in range(n_vacuoles):
+            vx = rng.uniform(-minor * 0.5, minor * 0.5)
+            vy = rng.uniform(-minor * 0.5, minor * 0.5)
+            vr = rng.uniform(2, 5)
+            v_dist = np.sqrt((xr - vx) ** 2 + (yr - vy) ** 2)
+            vacuole = np.exp(-v_dist ** 2 / (2 * vr ** 2)) * rng.uniform(15, 35)
+            texture += vacuole
+
+        texture = np.clip(texture, 0, 255).astype(np.float32)
+
+        return TargetRender(mask=mask, reference_point=(cx, cy), label="yeast", texture=texture)
 
 
 class SpermHeadGenerator(TargetGenerator):
-    """Ellipse with tapered tip, major axis 18-28 px."""
+    """Ellipse with tapered tip, major axis 18-28 px.
+
+    Real sperm heads appear as:
+    - Dark oval/elongated shapes (~50-80)
+    - Acrosome region (slightly brighter tip)
+    - Nucleus region (darker center)
+    - Smooth edges with slight defocus
+    """
 
     def __init__(self, major_min: float = 18.0, major_max: float = 28.0,
                  aspect_ratio_range: Tuple[float, float] = (0.4, 0.7),
@@ -138,11 +232,35 @@ class SpermHeadGenerator(TargetGenerator):
         mask = (255 * (1.0 - np.clip((r_actual - r_target + sigma) / (2 * sigma), 0.0, 1.0))).astype(np.uint8)
         mask[r_actual <= r_target - sigma] = 255
 
-        return TargetRender(mask=mask, reference_point=(cx, cy), label="sperm_head")
+        # Generate realistic sperm head texture
+        base_intensity = rng.uniform(55, 80)
+        texture = _generate_target_texture((h, w), base_intensity, rng, texture_scale=25.0, texture_strength=0.1)
+
+        # Acrosome: brighter region at the tip (theta near pi)
+        acrosome_strength = rng.uniform(10, 25)
+        acrosome_region = np.abs(theta - np.pi) < np.pi / 4
+        acrosome_falloff = np.cos((np.abs(theta - np.pi) / (np.pi / 4)) * np.pi / 2)
+        texture[acrosome_region] += acrosome_strength * acrosome_falloff[acrosome_region]
+
+        # Nucleus: slightly darker center region
+        nucleus_strength = rng.uniform(5, 15)
+        nucleus_region = r_actual < minor * 0.3
+        texture[nucleus_region] -= nucleus_strength
+
+        texture = np.clip(texture, 0, 255).astype(np.float32)
+
+        return TargetRender(mask=mask, reference_point=(cx, cy), label="sperm_head", texture=texture)
 
 
 class SpermTailGenerator(TargetGenerator):
-    """Cubic Bezier curve tail. Reference point = tip (endpoint) of the curve."""
+    """Cubic Bezier curve tail. Reference point = tip (endpoint) of the curve.
+
+    Real sperm tails (flagella) appear as:
+    - Very faint, thin lines (barely darker than background)
+    - Slight brightness variation along the curve
+    - Small dark head at the base
+    - Intensity ~120-140 (only slightly darker than background ~146)
+    """
 
     def __init__(self, line_width: Tuple[float, float] = (1.0, 2.5),
                  curve_length_range: Tuple[float, float] = (40.0, 100.0)):
@@ -189,10 +307,27 @@ class SpermTailGenerator(TargetGenerator):
         head_radius = rng.uniform(6, 10)
         head_mask = np.zeros((h, w), dtype=np.uint8)
         cv2_circle_fill(head_mask, (int(p0[0]), int(p0[1])), int(head_radius))
-        # Blend head into mask
         mask = np.maximum(mask, head_mask)
 
-        return TargetRender(mask=mask, reference_point=tip_point, label="sperm_tail")
+        # Generate texture: tail is very faint, head is darker
+        # Tail intensity: ~120-140 (barely darker than background ~146)
+        texture = np.full((h, w), 130.0, dtype=np.float32)
+        # Add subtle variation along the tail
+        tail_noise = generate_perlin_noise(
+            width=w, height=h, scale=40.0, octaves=2,
+            persistence=0.3, lacunarity=2.0, seed=rng.integers(0, 2**31)
+        )
+        texture += (tail_noise - 0.5) * 15  # ±7.5 variation
+
+        # Head region is darker (~60-80)
+        y_grid, x_grid = np.ogrid[:h, :w]
+        head_dist = np.sqrt((x_grid - p0[0]) ** 2 + (y_grid - p0[1]) ** 2)
+        head_region = head_dist < head_radius
+        texture[head_region] = rng.uniform(60, 80)
+
+        texture = np.clip(texture, 0, 255).astype(np.float32)
+
+        return TargetRender(mask=mask, reference_point=tip_point, label="sperm_tail", texture=texture)
 
 
 def cv2_circle_fill(img: np.ndarray, center: Tuple[int, int], radius: int) -> None:

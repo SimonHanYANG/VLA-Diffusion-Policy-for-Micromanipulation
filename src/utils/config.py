@@ -7,13 +7,15 @@ import yaml
 
 @dataclass
 class NoiseConfig:
-    gaussian_std: float = 5.0
-    salt_pepper_prob: float = 0.02
+    gaussian_std: float = 3.0
+    salt_pepper_prob: float = 0.01
     flicker_prob: float = 0.1
     flicker_intensity_min: float = 0.7
     flicker_intensity_max: float = 1.3
     motion_blur_kernel_max: int = 5
     motion_blur_prob: float = 0.05
+    fixed_pattern_prob: float = 0.3
+    fixed_pattern_strength: float = 1.5
 
 
 @dataclass
@@ -22,6 +24,18 @@ class DomainRandConfig:
     contrast_range: Tuple[float, float] = (0.5, 1.5)
     blur_sigma_max: float = 2.0
     blur_prob: float = 0.3
+
+
+@dataclass
+class OpticsConfig:
+    """Optical effects configuration for realistic microscope simulation."""
+    vignette_prob: float = 0.7
+    vignette_strength_range: Tuple[float, float] = (0.1, 0.4)
+    vignette_power: float = 2.0
+    psf_prob: float = 0.5
+    psf_sigma_range: Tuple[float, float] = (0.3, 1.2)
+    chromatic_prob: float = 0.3
+    chromatic_shift_range: Tuple[float, float] = (0.3, 1.5)
 
 
 @dataclass
@@ -35,6 +49,7 @@ class SimulatorConfig:
     start_distance_max: float = 200.0
     noise: NoiseConfig = field(default_factory=NoiseConfig)
     domain_randomization: DomainRandConfig = field(default_factory=DomainRandConfig)
+    optics: OpticsConfig = field(default_factory=OpticsConfig)
 
 
 @dataclass

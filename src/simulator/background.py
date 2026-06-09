@@ -18,9 +18,9 @@ class BackgroundGenerator(ABC):
 class PerlinNoiseBackground(BackgroundGenerator):
     """Multi-octave Perlin noise as synthetic microscope background."""
 
-    def __init__(self, base_scale: float = 50.0, octaves: int = 4,
-                 persistence: float = 0.5, lacunarity: float = 2.0,
-                 intensity_min: int = 40, intensity_max: int = 200):
+    def __init__(self, base_scale: float = 80.0, octaves: int = 3,
+                 persistence: float = 0.3, lacunarity: float = 2.0,
+                 intensity_min: int = 140, intensity_max: int = 160):
         self.base_scale = base_scale
         self.octaves = octaves
         self.persistence = persistence
