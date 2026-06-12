@@ -1,11 +1,25 @@
+"""Target generators for microscope simulation.
+
+Provides:
+- MicrosphereGenerator: Procedural microsphere (no real images available yet)
+- RealImageTargetGenerator: Loads real cell images from pre-segmented data
+- SpermTailFromImageGenerator: Extracts sperm tail tip from whole sperm images
+"""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Tuple
+from pathlib import Path
+from typing import List, Tuple
 
 import cv2
 import numpy as np
 
 from src.utils.perlin import generate_perlin_noise
+
+
+def _get_resolution_scale(image_size: Tuple[int, int], reference: int = 224) -> float:
+    """计算分辨率相对于参考尺寸的线性缩放系数。"""
+    return min(image_size) / reference
 
 
 def _generate_target_texture(
@@ -73,6 +87,8 @@ class MicrosphereGenerator(TargetGenerator):
     - Slightly brighter center highlight
     - Soft edge falloff
     - Intensity range ~80-120 (not 200)
+
+    Note: No real microsphere images available yet. Using procedural generation.
     """
 
     def __init__(self, radius_min: float = 15.0, radius_max: float = 25.0,
@@ -84,14 +100,15 @@ class MicrosphereGenerator(TargetGenerator):
 
     def generate(self, image_size: Tuple[int, int], rng: np.random.Generator) -> TargetRender:
         h, w = image_size
-        radius = rng.uniform(self.radius_min, self.radius_max)
+        scale = _get_resolution_scale(image_size)
+        radius = rng.uniform(self.radius_min * scale, self.radius_max * scale)
         cx, cy = w / 2.0, h / 2.0
 
         y_grid, x_grid = np.ogrid[:h, :w]
         dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
 
         if rng.random() < self.ring_prob:
-            thickness = self.ring_thickness * rng.uniform(0.8, 1.2)
+            thickness = self.ring_thickness * rng.uniform(0.8, 1.2) * scale
             mask = ((dist >= radius - thickness) & (dist <= radius)).astype(np.uint8) * 255
         else:
             sigma = radius * 0.05
@@ -111,223 +128,463 @@ class MicrosphereGenerator(TargetGenerator):
         return TargetRender(mask=mask, reference_point=(cx, cy), label="microsphere", texture=texture)
 
 
-class YeastGenerator(TargetGenerator):
-    """Ellipse with sinusoidal bumps on perimeter, major axis 20-35 px.
+class RealImageTargetGenerator(TargetGenerator):
+    """从预分割的真实显微镜图片加载目标物体。
 
-    Real yeast cells appear as:
-    - Medium-dark elliptical blobs (~70-110)
-    - Internal granular texture (organelles)
-    - Occasional brighter vacuole spots
-    - Soft edges
+    支持加载 individual_obj 中的胚胎、卵母细胞、精子头等图片。
+    图片应为带 alpha 通道的 PNG（alpha 作为 mask）或灰度图（Otsu 阈值提取 mask）。
+
+    自动缩放：根据目标图像尺寸自动计算缩放比例，确保物体不会太大。
     """
 
-    def __init__(self, major_min: float = 20.0, major_max: float = 35.0,
-                 aspect_ratio_range: Tuple[float, float] = (0.6, 0.9),
-                 num_bumps: Tuple[int, int] = (3, 7), bump_amp: float = 0.06):
-        self.major_min = major_min
-        self.major_max = major_max
-        self.aspect_ratio_range = aspect_ratio_range
-        self.num_bumps = num_bumps
-        self.bump_amp = bump_amp
+    def __init__(
+        self,
+        image_dir: str | Path,
+        scale_range: Tuple[float, float] = (0.3, 0.6),
+        target_occupancy: Tuple[float, float] = (0.4, 0.7),
+        label: str = "real_target",
+        crop_margin: int = 5,
+        edge_blur_range: Tuple[float, float] = (0.8, 2.5),
+    ):
+        """
+        Args:
+            image_dir: 图片目录路径。
+            scale_range: 额外随机缩放范围（在自动缩放基础上）。
+            target_occupancy: 目标物体占图像的比例范围 (min, max)。
+                例如 (0.4, 0.7) 表示物体占图像 40%-70% 的尺寸。
+            label: 目标标签。
+            crop_margin: 裁剪边距。
+            edge_blur_range: 边缘模糊范围。
+        """
+        self.image_dir = Path(image_dir)
+        self.scale_range = scale_range
+        self.target_occupancy = target_occupancy
+        self.label = label
+        self.crop_margin = crop_margin
+        self.edge_blur_range = edge_blur_range
+
+        # 扫描目录中的所有图片
+        self._image_paths: List[Path] = []
+        if self.image_dir.exists():
+            for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]:
+                self._image_paths.extend(sorted(self.image_dir.glob(ext)))
+
+        if not self.image_paths:
+            raise FileNotFoundError(f"目录中没有找到图片: {self.image_dir}")
+
+    @property
+    def image_paths(self) -> List[Path]:
+        return self._image_paths
+
+    def _load_image_and_mask(self, path: Path) -> Tuple[np.ndarray, np.ndarray]:
+        """加载图片并提取 mask。
+
+        Returns:
+            (gray_image, mask): 灰度图和二值 mask，都是 (H, W) 格式。
+        """
+        # 读取图片（带 alpha 通道）
+        img_rgba = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if img_rgba is None:
+            raise ValueError(f"无法加载图片: {path}")
+
+        if img_rgba.ndim == 3 and img_rgba.shape[2] == 4:
+            # RGBA 图片：alpha 通道作为 mask
+            gray = cv2.cvtColor(img_rgba[:, :, :3], cv2.COLOR_BGR2GRAY)
+            alpha = img_rgba[:, :, 3]
+            mask = (alpha > 128).astype(np.uint8) * 255
+        elif img_rgba.ndim == 3:
+            # BGR 图片：使用 Otsu 阈值
+            gray = cv2.cvtColor(img_rgba, cv2.COLOR_BGR2GRAY)
+            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        else:
+            # 灰度图：使用 Otsu 阈值
+            gray = img_rgba
+            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # 形态学开运算清理 mask 中的小噪点
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+        return gray, mask
+
+    def _crop_to_content(self, gray: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Tuple[int, int]]:
+        """裁剪到内容的 tight bbox，保留少量边距。
+
+        Returns:
+            (cropped_gray, cropped_mask, (offset_x, offset_y))
+        """
+        coords = cv2.findNonZero(mask)
+        if coords is None:
+            return gray, mask, (0, 0)
+
+        x, y, bw, bh = cv2.boundingRect(coords)
+
+        # 添加边距
+        margin = self.crop_margin
+        x1 = max(0, x - margin)
+        y1 = max(0, y - margin)
+        x2 = min(gray.shape[1], x + bw + margin)
+        y2 = min(gray.shape[0], y + bh + margin)
+
+        return gray[y1:y2, x1:x2], mask[y1:y2, x1:x2], (x1, y1)
+
+    def _compute_auto_scale(self, obj_h: int, obj_w: int, target_h: int, target_w: int, rng: np.random.Generator) -> float:
+        """计算自动缩放比例，使物体在目标图像中占合适大小。
+
+        根据 target_occupancy 参数计算缩放比例：
+        - 物体应该占目标图像的 target_occupancy[0] ~ target_occupancy[1] 比例
+        - 然后在此基础上乘以 scale_range 的随机因子
+        """
+        # 计算物体占目标图像的比例
+        target_size = min(target_h, target_w)
+        obj_size = max(obj_h, obj_w)
+
+        if obj_size == 0:
+            return 1.0
+
+        # 目标物体应该占目标图像的比例
+        desired_occupancy = rng.uniform(*self.target_occupancy)
+        desired_size = target_size * desired_occupancy
+
+        # 基础缩放比例
+        base_scale = desired_size / obj_size
+
+        # 额外随机缩放
+        extra_scale = rng.uniform(*self.scale_range)
+
+        return base_scale * extra_scale
+
+    def _random_scale(self, gray: np.ndarray, mask: np.ndarray, rng: np.random.Generator,
+                      target_h: int = 224, target_w: int = 224) -> Tuple[np.ndarray, np.ndarray, float]:
+        """随机缩放目标物体，自动计算合适的缩放比例。
+
+        Returns:
+            (gray_scaled, mask_scaled, scale_factor)
+        """
+        obj_h, obj_w = gray.shape
+        scale = self._compute_auto_scale(obj_h, obj_w, target_h, target_w, rng)
+
+        new_h = max(1, int(obj_h * scale))
+        new_w = max(1, int(obj_w * scale))
+
+        gray_scaled = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        mask_scaled = cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+        return gray_scaled, mask_scaled, scale
+
+    def _blur_mask_edges(self, mask: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """对 mask 边缘做高斯模糊，实现柔化效果。"""
+        sigma = rng.uniform(*self.edge_blur_range)
+        ksize = int(sigma * 6) | 1
+        ksize = max(ksize, 3)
+        mask_f = mask.astype(np.float32)
+        mask_blurred = cv2.GaussianBlur(mask_f, (ksize, ksize), sigma)
+        return np.clip(mask_blurred, 0, 255).astype(np.uint8)
 
     def generate(self, image_size: Tuple[int, int], rng: np.random.Generator) -> TargetRender:
         h, w = image_size
-        cx, cy = w / 2.0, h / 2.0
-        major = rng.uniform(self.major_min, self.major_max)
-        aspect = rng.uniform(*self.aspect_ratio_range)
-        minor = major * aspect
-        angle = rng.uniform(0, 2 * np.pi)
-        n_bumps = rng.integers(*self.num_bumps)
 
-        y_grid, x_grid = np.ogrid[:h, :w]
-        dx = x_grid - cx
-        dy = y_grid - cy
-        xr = dx * np.cos(angle) + dy * np.sin(angle)
-        yr = -dx * np.sin(angle) + dy * np.cos(angle)
+        # 1. 随机选一张图片
+        idx = rng.integers(0, len(self._image_paths))
+        path = self._image_paths[idx]
 
-        # Ellipse radial distance
-        theta = np.arctan2(yr, xr)
-        r_ellipse = (major * minor) / np.sqrt((minor * np.cos(theta)) ** 2 + (major * np.sin(theta)) ** 2)
+        # 2. 加载图片和 mask
+        gray, mask = self._load_image_and_mask(path)
 
-        # Add bumps
-        bump_factor = 1.0
-        for i in range(n_bumps):
-            fi = rng.uniform(3, 8)
-            phi_i = rng.uniform(0, 2 * np.pi)
-            amp_i = rng.uniform(0, self.bump_amp)
-            bump_factor += amp_i * np.sin(fi * theta + phi_i)
+        # 3. 裁剪到内容区域
+        gray, mask, (ox, oy) = self._crop_to_content(gray, mask)
 
-        r_target = r_ellipse * bump_factor
-        r_actual = np.sqrt(xr ** 2 + yr ** 2)
+        # 4. 自动缩放（根据目标图像尺寸）
+        gray, mask, scale = self._random_scale(gray, mask, rng, target_h=h, target_w=w)
 
-        sigma = 1.0
-        mask = (255 * (1.0 - np.clip((r_actual - r_target + sigma) / (2 * sigma), 0.0, 1.0))).astype(np.uint8)
-        mask[r_actual <= r_target - sigma] = 255
+        # 5. 柔化 mask 边缘
+        mask_soft = self._blur_mask_edges(mask, rng)
 
-        # Generate realistic texture with granular appearance
-        base_intensity = rng.uniform(70, 110)
-        texture = _generate_target_texture((h, w), base_intensity, rng, texture_scale=15.0, texture_strength=0.2)
+        # 6. 创建全尺寸的输出数组
+        out_gray = np.zeros((h, w), dtype=np.float32)
+        out_mask = np.zeros((h, w), dtype=np.uint8)
 
-        # Add vacuole-like brighter spots (1-3 random spots inside the cell)
-        n_vacuoles = rng.integers(1, 4)
-        for _ in range(n_vacuoles):
-            vx = rng.uniform(-minor * 0.5, minor * 0.5)
-            vy = rng.uniform(-minor * 0.5, minor * 0.5)
-            vr = rng.uniform(2, 5)
-            v_dist = np.sqrt((xr - vx) ** 2 + (yr - vy) ** 2)
-            vacuole = np.exp(-v_dist ** 2 / (2 * vr ** 2)) * rng.uniform(15, 35)
-            texture += vacuole
+        # 将目标放在图像中心
+        obj_h, obj_w = gray.shape
+        paste_x = (w - obj_w) // 2
+        paste_y = (h - obj_h) // 2
 
-        texture = np.clip(texture, 0, 255).astype(np.float32)
+        # 处理目标超出图像边界的情况
+        src_x1 = max(0, -paste_x)
+        src_y1 = max(0, -paste_y)
+        src_x2 = min(obj_w, w - paste_x)
+        src_y2 = min(obj_h, h - paste_y)
 
-        return TargetRender(mask=mask, reference_point=(cx, cy), label="yeast", texture=texture)
+        dst_x1 = paste_x + src_x1
+        dst_y1 = paste_y + src_y1
+        dst_x2 = paste_x + src_x2
+        dst_y2 = paste_y + src_y2
 
+        if dst_x2 > dst_x1 and dst_y2 > dst_y1:
+            out_gray[dst_y1:dst_y2, dst_x1:dst_x2] = gray[src_y1:src_y2, src_x1:src_x2].astype(np.float32)
+            out_mask[dst_y1:dst_y2, dst_x1:dst_x2] = mask_soft[src_y1:src_y2, src_x1:src_x2]
 
-class SpermHeadGenerator(TargetGenerator):
-    """Ellipse with tapered tip, major axis 18-28 px.
+        # 参考点 = 图像中心
+        reference_point = (w / 2.0, h / 2.0)
 
-    Real sperm heads appear as:
-    - Dark oval/elongated shapes (~50-80)
-    - Acrosome region (slightly brighter tip)
-    - Nucleus region (darker center)
-    - Smooth edges with slight defocus
-    """
-
-    def __init__(self, major_min: float = 18.0, major_max: float = 28.0,
-                 aspect_ratio_range: Tuple[float, float] = (0.4, 0.7),
-                 tip_sharpness_range: Tuple[float, float] = (2.0, 5.0)):
-        self.major_min = major_min
-        self.major_max = major_max
-        self.aspect_ratio_range = aspect_ratio_range
-        self.tip_sharpness_range = tip_sharpness_range
-
-    def generate(self, image_size: Tuple[int, int], rng: np.random.Generator) -> TargetRender:
-        h, w = image_size
-        cx, cy = w / 2.0, h / 2.0
-        major = rng.uniform(self.major_min, self.major_max)
-        aspect = rng.uniform(*self.aspect_ratio_range)
-        minor = major * aspect
-        angle = rng.uniform(0, 2 * np.pi)
-        sharpness = rng.uniform(*self.tip_sharpness_range)
-
-        y_grid, x_grid = np.ogrid[:h, :w]
-        dx = x_grid - cx
-        dy = y_grid - cy
-        xr = dx * np.cos(angle) + dy * np.sin(angle)
-        yr = -dx * np.sin(angle) + dy * np.cos(angle)
-
-        theta = np.arctan2(yr, xr)
-        r_ellipse = (major * minor) / np.sqrt((minor * np.cos(theta)) ** 2 + (major * np.sin(theta)) ** 2)
-
-        # Taper the tip at theta near pi (pointed end)
-        taper = np.ones_like(theta)
-        tip_region = np.abs(theta - np.pi) < np.pi / 3
-        tip_angle = np.abs(theta[tip_region] - np.pi)
-        taper[tip_region] *= (tip_angle / (np.pi / 3)) ** sharpness
-
-        r_target = r_ellipse * taper
-        r_actual = np.sqrt(xr ** 2 + yr ** 2)
-
-        sigma = 1.0
-        mask = (255 * (1.0 - np.clip((r_actual - r_target + sigma) / (2 * sigma), 0.0, 1.0))).astype(np.uint8)
-        mask[r_actual <= r_target - sigma] = 255
-
-        # Generate realistic sperm head texture
-        base_intensity = rng.uniform(55, 80)
-        texture = _generate_target_texture((h, w), base_intensity, rng, texture_scale=25.0, texture_strength=0.1)
-
-        # Acrosome: brighter region at the tip (theta near pi)
-        acrosome_strength = rng.uniform(10, 25)
-        acrosome_region = np.abs(theta - np.pi) < np.pi / 4
-        acrosome_falloff = np.cos((np.abs(theta - np.pi) / (np.pi / 4)) * np.pi / 2)
-        texture[acrosome_region] += acrosome_strength * acrosome_falloff[acrosome_region]
-
-        # Nucleus: slightly darker center region
-        nucleus_strength = rng.uniform(5, 15)
-        nucleus_region = r_actual < minor * 0.3
-        texture[nucleus_region] -= nucleus_strength
-
-        texture = np.clip(texture, 0, 255).astype(np.float32)
-
-        return TargetRender(mask=mask, reference_point=(cx, cy), label="sperm_head", texture=texture)
-
-
-class SpermTailGenerator(TargetGenerator):
-    """Cubic Bezier curve tail. Reference point = tip (endpoint) of the curve.
-
-    Real sperm tails (flagella) appear as:
-    - Very faint, thin lines (barely darker than background)
-    - Slight brightness variation along the curve
-    - Small dark head at the base
-    - Intensity ~120-140 (only slightly darker than background ~146)
-    """
-
-    def __init__(self, line_width: Tuple[float, float] = (1.0, 2.5),
-                 curve_length_range: Tuple[float, float] = (40.0, 100.0)):
-        self.line_width = line_width
-        self.curve_length_range = curve_length_range
-
-    def generate(self, image_size: Tuple[int, int], rng: np.random.Generator) -> TargetRender:
-        h, w = image_size
-        cx, cy = w / 2.0, h / 2.0
-
-        curve_len = rng.uniform(*self.curve_length_range)
-        angle = rng.uniform(0, 2 * np.pi)
-
-        # Generate 4 control points for cubic Bezier
-        p0 = np.array([cx, cy])
-        p3 = np.array([cx + curve_len * np.cos(angle), cy + curve_len * np.sin(angle)])
-
-        # Mid control points with random offsets for natural variation
-        mid = (p0 + p3) / 2
-        perp = np.array([-np.sin(angle), np.cos(angle)]) * curve_len * 0.3
-        p1 = p0 * 0.7 + p3 * 0.3 + perp * rng.uniform(-1, 1) + rng.uniform(-5, 5, 2)
-        p2 = p0 * 0.3 + p3 * 0.7 + perp * rng.uniform(-1, 1) + rng.uniform(-5, 5, 2)
-
-        # Render curve by sampling Bezier
-        mask = np.zeros((h, w), dtype=np.uint8)
-        num_samples = 200
-        t_vals = np.linspace(0, 1, num_samples)
-        points = np.zeros((num_samples, 2))
-
-        for i, t in enumerate(t_vals):
-            t_inv = 1 - t
-            pt = t_inv**3 * p0 + 3 * t_inv**2 * t * p1 + 3 * t_inv * t**2 * p2 + t**3 * p3
-            points[i] = pt
-
-        line_w = rng.uniform(*self.line_width)
-        for i in range(num_samples):
-            px, py = int(round(points[i, 0])), int(round(points[i, 1]))
-            if 0 <= px < w and 0 <= py < h:
-                cv2_circle_fill(mask, (px, py), int(np.ceil(line_w / 2)))
-
-        tip_point = (float(points[-1, 0]), float(points[-1, 1]))
-
-        # Attach a small head at the base (p0 side) for realism
-        head_radius = rng.uniform(6, 10)
-        head_mask = np.zeros((h, w), dtype=np.uint8)
-        cv2_circle_fill(head_mask, (int(p0[0]), int(p0[1])), int(head_radius))
-        mask = np.maximum(mask, head_mask)
-
-        # Generate texture: tail is very faint, head is darker
-        # Tail intensity: ~120-140 (barely darker than background ~146)
-        texture = np.full((h, w), 130.0, dtype=np.float32)
-        # Add subtle variation along the tail
-        tail_noise = generate_perlin_noise(
-            width=w, height=h, scale=40.0, octaves=2,
-            persistence=0.3, lacunarity=2.0, seed=rng.integers(0, 2**31)
+        return TargetRender(
+            mask=out_mask,
+            reference_point=reference_point,
+            label=self.label,
+            texture=out_gray,
         )
-        texture += (tail_noise - 0.5) * 15  # ±7.5 variation
 
-        # Head region is darker (~60-80)
-        y_grid, x_grid = np.ogrid[:h, :w]
-        head_dist = np.sqrt((x_grid - p0[0]) ** 2 + (y_grid - p0[1]) ** 2)
-        head_region = head_dist < head_radius
-        texture[head_region] = rng.uniform(60, 80)
 
-        texture = np.clip(texture, 0, 255).astype(np.float32)
+class SpermTailFromImageGenerator(RealImageTargetGenerator):
+    """从整精子图片中提取精子尾部，参考点为尾部尖端。
 
-        return TargetRender(mask=mask, reference_point=tip_point, label="sperm_tail", texture=texture)
+    关键流程：
+    1. 加载预计算的 tail_tip 位置（从 JSON 文件）
+    2. 裁剪到内容区域，同时更新 tail_tip 坐标
+    3. 自动缩放到目标图像大小，同时缩放 tail_tip 坐标
+    4. 粘贴到目标图像中，同时更新 tail_tip 坐标
+
+    预计算文件由 scripts/preprocess_sperm_tail_tips.py 生成。
+    """
+
+    def __init__(
+        self,
+        image_dir: str | Path,
+        tail_tips_file: str | Path | None = None,
+        scale_range: Tuple[float, float] = (0.3, 0.6),
+        target_occupancy: Tuple[float, float] = (0.4, 0.7),
+        crop_margin: int = 5,
+        edge_blur_range: Tuple[float, float] = (0.8, 2.5),
+    ):
+        """
+        Args:
+            image_dir: 整精子图片目录。
+            tail_tips_file: 预计算的 tail_tip JSON 文件路径。
+                如果为 None，自动查找 data/sperm_tail_tips.json。
+            scale_range: 额外随机缩放范围。
+            target_occupancy: 目标物体占图像的比例范围。
+            crop_margin: 裁剪边距。
+            edge_blur_range: 边缘模糊范围。
+        """
+        super().__init__(
+            image_dir=image_dir,
+            scale_range=scale_range,
+            target_occupancy=target_occupancy,
+            label="sperm_tail",
+            crop_margin=crop_margin,
+            edge_blur_range=edge_blur_range,
+        )
+
+        # 加载预计算的 tail_tip 位置
+        self._tail_tips: dict[str, tuple] = {}
+        self._load_tail_tips(tail_tips_file)
+
+    def _load_tail_tips(self, tail_tips_file: str | Path | None):
+        """加载预计算的 tail_tip 位置。"""
+        import json as json_module
+
+        if tail_tips_file is None:
+            # 自动查找
+            candidates = [
+                Path("data/sperm_tail_tips.json"),
+                Path("data/pre-individual-obj/individual_obj/sperm_tail_tips.json"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    tail_tips_file = candidate
+                    break
+
+        if tail_tips_file is None:
+            print("警告：未找到预计算的 tail_tip 文件，将使用在线计算")
+            return
+
+        tail_tips_file = Path(tail_tips_file)
+        if not tail_tips_file.exists():
+            print(f"警告：tail_tip 文件不存在: {tail_tips_file}，将使用在线计算")
+            return
+
+        with open(tail_tips_file, "r", encoding="utf-8") as f:
+            data = json_module.load(f)
+
+        for item in data:
+            if "error" not in item and "tail_tip" in item:
+                self._tail_tips[item["file"]] = tuple(item["tail_tip"])
+
+        print(f"加载了 {len(self._tail_tips)} 个预计算的 tail_tip 位置")
+
+    def _find_tail_tip_online(self, mask: np.ndarray) -> Tuple[float, float]:
+        """在线计算 tail_tip 位置（当预计算文件不可用时的回退方案）。
+
+        骨架化找端点，离质心最远的是尾部尖端。
+        """
+        skeleton = self._skeletonize(mask)
+
+        h, w = skeleton.shape
+        endpoints = []
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                if skeleton[y, x] == 0:
+                    continue
+                neighbors = np.sum(skeleton[y - 1:y + 2, x - 1:x + 2] > 0) - 1
+                if neighbors == 1:
+                    endpoints.append((x, y))
+
+        if not endpoints:
+            M = cv2.moments(mask)
+            if M["m00"] > 0:
+                return (M["m10"] / M["m00"], M["m01"] / M["m00"])
+            return (mask.shape[1] / 2, mask.shape[0] / 2)
+
+        M = cv2.moments(mask)
+        if M["m00"] > 0:
+            cx = M["m10"] / M["m00"]
+            cy = M["m01"] / M["m00"]
+        else:
+            cx = w / 2
+            cy = h / 2
+
+        tail_tip = max(endpoints, key=lambda p: (p[0] - cx) ** 2 + (p[1] - cy) ** 2)
+        return (float(tail_tip[0]), float(tail_tip[1]))
+
+    @staticmethod
+    def _skeletonize(img: np.ndarray) -> np.ndarray:
+        """使用形态学操作实现骨架化。"""
+        img = img.copy()
+        skel = np.zeros(img.shape, np.uint8)
+        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+        while True:
+            eroded = cv2.erode(img, element)
+            temp = cv2.dilate(eroded, element)
+            temp = cv2.subtract(img, temp)
+            skel = cv2.bitwise_or(skel, temp)
+            img = eroded.copy()
+            if cv2.countNonZero(img) == 0:
+                break
+        return skel
+
+    def _get_tail_tip(self, filename: str, mask: np.ndarray) -> Tuple[float, float]:
+        """获取 tail_tip 位置，优先使用预计算值。"""
+        if filename in self._tail_tips:
+            return self._tail_tips[filename]
+        return self._find_tail_tip_online(mask)
+
+    def _transform_point(self, point: Tuple[float, float],
+                         crop_offset: Tuple[int, int],
+                         scale: float,
+                         paste_offset: Tuple[int, int]) -> Tuple[float, float]:
+        """将点坐标从原图空间变换到最终输出空间。
+
+        变换链：原图 -> 裁剪 -> 缩放 -> 粘贴
+        """
+        x = point[0] - crop_offset[0]
+        y = point[1] - crop_offset[1]
+        x *= scale
+        y *= scale
+        x += paste_offset[0]
+        y += paste_offset[1]
+        return (x, y)
+
+    @staticmethod
+    def _clamp_to_mask(point: Tuple[float, float], mask: np.ndarray) -> Tuple[float, float]:
+        """确保点在 mask 内部。如果不在，找最近的 mask 像素。"""
+        h, w = mask.shape
+        px, py = int(round(point[0])), int(round(point[1]))
+
+        # 如果已经在 mask 上，直接返回
+        if 0 <= px < w and 0 <= py < h and mask[py, px] > 0:
+            return point
+
+        # clamp 到图像范围
+        px = np.clip(px, 0, w - 1)
+        py = np.clip(py, 0, h - 1)
+
+        # 如果 clamp 后在 mask 上，返回 clamp 后的值
+        if mask[py, px] > 0:
+            return (float(px), float(py))
+
+        # 找最近的 mask 像素
+        ys, xs = np.where(mask > 0)
+        if len(xs) == 0:
+            return (float(w / 2), float(h / 2))
+
+        dists = (xs - point[0]) ** 2 + (ys - point[1]) ** 2
+        nearest_idx = np.argmin(dists)
+        return (float(xs[nearest_idx]), float(ys[nearest_idx]))
+
+    def generate(self, image_size: Tuple[int, int], rng: np.random.Generator) -> TargetRender:
+        """生成精子尾部目标，参考点为尾部尖端。
+
+        流程：
+        1. 加载原图
+        2. 获取 tail_tip 位置（预计算或在线计算）
+        3. 裁剪到内容区域
+        4. 自动缩放
+        5. 粘贴到目标图像
+        6. 变换 tail_tip 坐标到最终位置
+        """
+        h, w = image_size
+
+        # 1. 随机选一张图片
+        idx = rng.integers(0, len(self._image_paths))
+        path = self._image_paths[idx]
+
+        # 2. 加载图片和 mask（原图空间）
+        gray, mask = self._load_image_and_mask(path)
+
+        # 3. 获取 tail_tip 位置（原图坐标）
+        tail_tip_original = self._get_tail_tip(path.name, mask)
+
+        # 4. 裁剪到内容区域
+        gray, mask, (ox, oy) = self._crop_to_content(gray, mask)
+
+        # 5. 自动缩放
+        gray, mask, scale = self._random_scale(gray, mask, rng, target_h=h, target_w=w)
+
+        # 6. 柔化 mask 边缘
+        mask_soft = self._blur_mask_edges(mask, rng)
+
+        # 7. 创建全尺寸的输出数组
+        out_gray = np.zeros((h, w), dtype=np.float32)
+        out_mask = np.zeros((h, w), dtype=np.uint8)
+
+        # 将目标放在图像中心
+        obj_h, obj_w = gray.shape
+        paste_x = (w - obj_w) // 2
+        paste_y = (h - obj_h) // 2
+
+        # 处理目标超出图像边界的情况
+        src_x1 = max(0, -paste_x)
+        src_y1 = max(0, -paste_y)
+        src_x2 = min(obj_w, w - paste_x)
+        src_y2 = min(obj_h, h - paste_y)
+
+        dst_x1 = paste_x + src_x1
+        dst_y1 = paste_y + src_y1
+        dst_x2 = paste_x + src_x2
+        dst_y2 = paste_y + src_y2
+
+        if dst_x2 > dst_x1 and dst_y2 > dst_y1:
+            out_gray[dst_y1:dst_y2, dst_x1:dst_x2] = gray[src_y1:src_y2, src_x1:src_x2].astype(np.float32)
+            out_mask[dst_y1:dst_y2, dst_x1:dst_x2] = mask_soft[src_y1:src_y2, src_x1:src_x2]
+
+        # 8. 变换 tail_tip 到最终输出坐标
+        tail_tip_final = self._transform_point(
+            tail_tip_original,
+            crop_offset=(ox, oy),
+            scale=scale,
+            paste_offset=(paste_x, paste_y),
+        )
+
+        # 9. 修正 tail_tip：确保在 mask 内部
+        #    缩放可能导致 tip 超出 mask 边界，需要 clamp 并找最近的 mask 像素
+        tail_tip_final = self._clamp_to_mask(tail_tip_final, out_mask)
+
+        return TargetRender(
+            mask=out_mask,
+            reference_point=tail_tip_final,
+            label="sperm_tail",
+            texture=out_gray,
+        )
 
 
 def cv2_circle_fill(img: np.ndarray, center: Tuple[int, int], radius: int) -> None:
@@ -339,18 +596,15 @@ def cv2_circle_fill(img: np.ndarray, center: Tuple[int, int], radius: int) -> No
     img[dist <= radius] = 255
 
 
+# Registries for generator lookup
 TASK_TO_GENERATOR = {
     "microsphere": MicrosphereGenerator,
-    "yeast": YeastGenerator,
-    "sperm_head": SpermHeadGenerator,
-    "sperm_tail": SpermTailGenerator,
 }
 
 GENERATOR_REGISTRY = {
     "MicrosphereGenerator": MicrosphereGenerator,
-    "YeastGenerator": YeastGenerator,
-    "SpermHeadGenerator": SpermHeadGenerator,
-    "SpermTailGenerator": SpermTailGenerator,
+    "RealImageTargetGenerator": RealImageTargetGenerator,
+    "SpermTailFromImageGenerator": SpermTailFromImageGenerator,
 }
 
 
@@ -358,7 +612,7 @@ def get_target_generator_for_task(task_name: str) -> TargetGenerator:
     """Create a default target generator for a named task.
 
     Args:
-        task_name: Lowercase task name, e.g. "microsphere", "yeast".
+        task_name: Lowercase task name, e.g. "microsphere".
 
     Returns:
         TargetGenerator instance with default parameters.

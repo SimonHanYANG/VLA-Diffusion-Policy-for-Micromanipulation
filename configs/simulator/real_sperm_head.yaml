@@ -1,0 +1,13 @@
+name: real_sperm_head
+instruction: "Navigate the sperm head to the red laser dot."
+target_generator: RealImageTargetGenerator
+target_params:
+  image_dir: "data/pre-individual-obj/individual_obj/sperm_head"
+  scale_range: [0.3, 0.6]
+  target_occupancy: [0.3, 0.6]
+  label: "sperm_head"
+  crop_margin: 5
+  edge_blur_range: [0.8, 2.5]
+pid_kp: 0.45
+pid_ki: 0.01
+pid_kd: 0.1

@@ -11,14 +11,13 @@ import pytest
 from src.simulator.stage import StageSimulator
 from src.simulator.targets import (
     MicrosphereGenerator,
-    SpermHeadGenerator,
-    SpermTailGenerator,
-    YeastGenerator,
+    RealImageTargetGenerator,
+    SpermTailFromImageGenerator,
     create_target_generator,
     get_target_generator_for_task,
 )
 from src.simulator.noise import NoiseApplicator, NoiseConfig
-from src.simulator.background import PerlinNoiseBackground
+from src.simulator.background import PerlinNoiseBackground, SingleImageBackground
 from src.simulator.environment import MicroscopeEnvironment
 from src.utils.config import SimulatorConfig
 
@@ -91,27 +90,6 @@ class TestTargetGenerators:
         assert len(target.reference_point) == 2
         assert np.any(target.mask > 0)  # non-empty
 
-    def test_yeast_generator(self):
-        gen = YeastGenerator()
-        target = gen.generate(self.IMAGE_SIZE, self.RNG)
-        assert target.mask.shape == self.IMAGE_SIZE
-        assert target.label == "yeast"
-        assert np.any(target.mask > 0)
-
-    def test_sperm_head_generator(self):
-        gen = SpermHeadGenerator()
-        target = gen.generate(self.IMAGE_SIZE, self.RNG)
-        assert target.mask.shape == self.IMAGE_SIZE
-        assert target.label == "sperm_head"
-        assert np.any(target.mask > 0)
-
-    def test_sperm_tail_generator(self):
-        gen = SpermTailGenerator()
-        target = gen.generate(self.IMAGE_SIZE, self.RNG)
-        assert target.mask.shape == self.IMAGE_SIZE
-        assert target.label == "sperm_tail"
-        assert np.any(target.mask > 0)
-
     def test_create_target_generator_with_params(self):
         gen = create_target_generator("MicrosphereGenerator", {"radius_min": 10.0, "radius_max": 20.0})
         target = gen.generate(self.IMAGE_SIZE, self.RNG)
@@ -121,15 +99,73 @@ class TestTargetGenerators:
         with pytest.raises(ValueError, match="Unknown generator"):
             create_target_generator("NonExistentGenerator", {})
 
-    def test_get_target_generator_for_task(self):
-        for task in ["microsphere", "yeast", "sperm_head", "sperm_tail"]:
-            gen = get_target_generator_for_task(task)
-            target = gen.generate(self.IMAGE_SIZE, self.RNG)
-            assert target.label == task
+    def test_get_target_generator_for_task_microsphere(self):
+        gen = get_target_generator_for_task("microsphere")
+        target = gen.generate(self.IMAGE_SIZE, self.RNG)
+        assert target.label == "microsphere"
 
     def test_get_target_generator_for_task_unknown(self):
         with pytest.raises(ValueError, match="Unknown task"):
             get_target_generator_for_task("invalid_task")
+
+
+# ------------------------------------------------------------------
+# Real Image Target Generators
+# ------------------------------------------------------------------
+
+class TestRealImageTargetGenerators:
+    IMAGE_SIZE = (224, 224)
+    RNG = np.random.default_rng(42)
+
+    @pytest.fixture
+    def embryo_dir(self):
+        d = Path("data/pre-individual-obj/individual_obj/embryo")
+        if not d.exists():
+            pytest.skip("Real embryo images not found")
+        return d
+
+    @pytest.fixture
+    def sperm_head_dir(self):
+        d = Path("data/pre-individual-obj/individual_obj/sperm_head")
+        if not d.exists():
+            pytest.skip("Real sperm head images not found")
+        return d
+
+    @pytest.fixture
+    def whole_sperm_dir(self):
+        d = Path("data/pre-individual-obj/individual_obj/whole_sperm")
+        if not d.exists():
+            pytest.skip("Real whole sperm images not found")
+        return d
+
+    def test_real_image_embryo(self, embryo_dir):
+        gen = RealImageTargetGenerator(image_dir=embryo_dir, label="embryo")
+        target = gen.generate(self.IMAGE_SIZE, self.RNG)
+        assert target.mask.shape == self.IMAGE_SIZE
+        assert target.label == "embryo"
+        assert np.any(target.mask > 0)
+
+    def test_real_image_sperm_head(self, sperm_head_dir):
+        gen = RealImageTargetGenerator(image_dir=sperm_head_dir, label="sperm_head")
+        target = gen.generate(self.IMAGE_SIZE, self.RNG)
+        assert target.mask.shape == self.IMAGE_SIZE
+        assert target.label == "sperm_head"
+        assert np.any(target.mask > 0)
+
+    def test_sperm_tail_from_image(self, whole_sperm_dir):
+        gen = SpermTailFromImageGenerator(image_dir=whole_sperm_dir)
+        target = gen.generate(self.IMAGE_SIZE, self.RNG)
+        assert target.mask.shape == self.IMAGE_SIZE
+        assert target.label == "sperm_tail"
+        assert np.any(target.mask > 0)
+
+    def test_real_image_in_environment(self, embryo_dir):
+        gen = RealImageTargetGenerator(image_dir=embryo_dir, label="embryo")
+        config = SimulatorConfig(image_size=(224, 224))
+        env = MicroscopeEnvironment(config=config, target_generator=gen)
+        obs, info = env.reset(seed=42)
+        assert obs.shape == (224, 224, 3)
+        assert info["target_label"] == "embryo"
 
 
 # ------------------------------------------------------------------
@@ -298,12 +334,11 @@ class TestMicroscopeEnvironment:
 # Target-specific environment tests
 # ------------------------------------------------------------------
 
-class TestAllTaskEnvironments:
+class TestMicrosphereEnvironment:
     CONFIG = SimulatorConfig(image_size=(224, 224))
 
-    @pytest.mark.parametrize("task", ["microsphere", "yeast", "sperm_head", "sperm_tail"])
-    def test_env_reset_step(self, task):
-        gen = get_target_generator_for_task(task)
+    def test_env_reset_step(self):
+        gen = get_target_generator_for_task("microsphere")
         env = MicroscopeEnvironment(config=self.CONFIG, target_generator=gen)
         obs, info = env.reset(seed=42)
         assert obs is not None
@@ -312,3 +347,68 @@ class TestAllTaskEnvironments:
         obs2, reward, done, info2 = env.step(action)
         assert obs2 is not None
         assert info2["step"] == 1
+
+
+# ------------------------------------------------------------------
+# SingleImageBackground
+# ------------------------------------------------------------------
+
+class TestSingleImageBackground:
+    def test_generate_shape(self):
+        """测试背景生成器输出形状。"""
+        # 需要存在背景图片才能运行此测试
+        bg_path = Path("data/backgrounds_test/bg_00000.png")
+        if not bg_path.exists():
+            pytest.skip("背景图片不存在")
+
+        bg = SingleImageBackground(image_path=bg_path)
+        rng = np.random.default_rng(42)
+        result = bg.generate((224, 224), rng)
+        assert result.shape == (224, 224)
+        assert result.dtype == np.uint8
+
+    def test_brightness_adjustment(self):
+        """测试亮度调整功能。"""
+        bg_path = Path("data/backgrounds_test/bg_00000.png")
+        if not bg_path.exists():
+            pytest.skip("背景图片不存在")
+
+        bg = SingleImageBackground(
+            image_path=bg_path,
+            brightness_range=(0.5, 0.5)  # 固定亮度
+        )
+        rng = np.random.default_rng(42)
+        result = bg.generate((224, 224), rng)
+        # 亮度调整应该保持在有效范围内
+        assert result.min() >= 0
+        assert result.max() <= 255
+
+    def test_deterministic_with_seed(self):
+        """测试相同种子生成相同结果。"""
+        bg_path = Path("data/backgrounds_test/bg_00000.png")
+        if not bg_path.exists():
+            pytest.skip("背景图片不存在")
+
+        bg = SingleImageBackground(image_path=bg_path)
+        rng1 = np.random.default_rng(12345)
+        rng2 = np.random.default_rng(12345)
+        res1 = bg.generate((224, 224), rng1)
+        res2 = bg.generate((224, 224), rng2)
+        assert np.array_equal(res1, res2)
+
+    def test_in_environment(self):
+        """测试在环境中的使用。"""
+        bg_path = Path("data/backgrounds_test/bg_00000.png")
+        if not bg_path.exists():
+            pytest.skip("背景图片不存在")
+
+        gen = MicrosphereGenerator()
+        config = SimulatorConfig(
+            image_size=(224, 224),
+            background_type="single_image",
+            background_image=str(bg_path),
+        )
+        env = MicroscopeEnvironment(config=config, target_generator=gen)
+        obs, info = env.reset(seed=42)
+        assert obs.shape == (224, 224, 3)
+        assert obs.dtype == np.uint8

@@ -1,6 +1,6 @@
 # VLA: Vision-Language-Action Diffusion Policy for Micro-Object Navigation
 
-A complete framework for **Vision-Language guided fine-grained micro-object positioning** using conditional diffusion policies. The system learns to navigate microscopic targets (microspheres, yeast cells, sperm heads, sperm tails) to a laser focal point in simulated microscope environments, with a sim-to-real transfer pipeline for deployment on real Nikon Ti2E microscopes.
+A complete framework for **Vision-Language guided fine-grained micro-object positioning** using conditional diffusion policies. The system learns to navigate microscopic targets (embryos, oocytes, sperm heads, sperm tails) to a laser focal point in simulated microscope environments, with a sim-to-real transfer pipeline for deployment on real Nikon Ti2E microscopes.
 
 ## Overview
 
@@ -11,73 +11,85 @@ This project implements a **Diffusion Policy** based VLA (Vision-Language-Action
 3. Uses closed-loop control to iteratively navigate targets to a laser dot
 4. Transfers from simulation to real hardware via domain randomization + few-shot fine-tuning
 
-The framework handles both **rigid objects** (microspheres) and **deformable biological specimens** (yeast cells, sperm) with a unified architecture.
+### Key Design Decisions
+
+- **Real cell images**: Uses pre-segmented real microscopy images (`data/pre-individual-obj/individual_obj/`) instead of procedural geometry for targets
+- **Clean rendering**: No noise, no optical effects, no domain randomization — pure grayscale simulation matching real camera output
+- **Resolution**: 640×640 pixels (matching real camera 1600×1200 center-crop deployment)
+- **Scale factor**: All pixel parameters auto-scale based on resolution (reference: 224×224)
 
 ## Project Structure
 
 ```
 VLA/
-├── configs/                        # YAML configuration files
+├── configs/                          # YAML configuration files
 │   ├── model/
-│   │   └── diffusion_policy.yaml   # Model hyperparameters
+│   │   └── diffusion_policy.yaml     # Model hyperparameters
 │   ├── simulator/
-│   │   ├── default.yaml            # Default simulator settings
-│   │   ├── microsphere.yaml        # Microsphere task config
-│   │   ├── yeast.yaml              # Yeast task config
-│   │   ├── sperm_head.yaml         # Sperm head task config
-│   │   └── sperm_tail.yaml         # Sperm tail task config
+│   │   ├── clean_640.yaml            # Clean 640×640 simulator config (no noise/optics)
+│   │   ├── embryo.yaml               # Embryo task (RealImageTargetGenerator)
+│   │   ├── oocyte.yaml               # Oocyte task (RealImageTargetGenerator)
+│   │   ├── real_sperm_head.yaml      # Sperm head task (RealImageTargetGenerator)
+│   │   ├── whole_sperm.yaml          # Whole sperm task (SpermTailFromImageGenerator)
+│   │   └── microsphere.yaml          # Microsphere task (procedural, no real images)
 │   └── training/
-│       └── default.yaml            # Training hyperparameters
+│       └── default.yaml              # Training hyperparameters
 ├── data/
-│   ├── checkpoints/                # Saved model weights (.pt)
-│   ├── runs/                       # TensorBoard logs
-│   ├── trajectories/               # Generated expert demonstrations
-│   │   ├── microsphere/
-│   │   ├── yeast/
-│   │   ├── sperm_head/
-│   │   └── sperm_tail/
-│   └── text_embeddings.pt          # Cached CLIP embeddings
+│   ├── pre-individual-obj/
+│   │   └── individual_obj/           # Real cell images (PNG with alpha)
+│   │       ├── embryo/               # ~149 embryo images
+│   │       ├── oocyte/               # ~149 oocyte images
+│   │       ├── sperm_head/           # ~149 sperm head images
+│   │       └── whole_sperm/          # ~4023 whole sperm images
+│   ├── backgrounds/                  # Real microscopy background patches (640×640)
+│   ├── sperm_tail_tips.json          # Pre-computed tail tip positions
+│   ├── trajectories/                 # Generated expert demonstrations
+│   ├── checkpoints/                  # Saved model weights (.pt)
+│   ├── runs/                         # TensorBoard logs
+│   └── text_embeddings.pt            # Cached CLIP embeddings
 ├── scripts/
-│   ├── generate_data.py            # Expert trajectory generation
-│   ├── train.py                    # Training entry point
-│   ├── eval.py                     # Batch evaluation
-│   └── run_inference_panel.py      # Launch GUI for interactive testing
+│   ├── generate_data.py              # Expert trajectory generation (main entry point)
+│   ├── extract_backgrounds.py        # Extract background patches from video frames
+│   ├── preprocess_sperm_tail_tips.py # Pre-compute sperm tail tip positions
+│   ├── visualize_trajectories.py     # Trajectory visualization
+│   ├── train.py                      # Training entry point
+│   ├── eval.py                       # Batch evaluation
+│   └── run_inference_panel.py        # Launch GUI for interactive testing
 ├── src/
-│   ├── vla/                        # Core VLA model
-│   │   ├── diffusion_policy.py     # Full diffusion policy (training + inference)
-│   │   ├── diffusion_unet.py       # 1D U-Net for noise prediction
-│   │   ├── visual_encoder.py       # ResNet-18 visual backbone
-│   │   ├── text_encoder.py         # CLIP text encoder + caching
-│   │   ├── condition_embed.py      # Visual-text fusion MLP
-│   │   ├── noise_scheduler.py      # DDPM/DDIM noise schedule
-│   │   └── inference.py            # Closed-loop controller
-│   ├── simulator/                  # Microscope simulator
-│   │   ├── environment.py          # Gym-like microscope env
-│   │   ├── renderer.py             # Image composition pipeline
-│   │   ├── targets.py              # Parametric target generators
-│   │   ├── stage.py                # Simulated Nikon Ti2E stage
-│   │   ├── background.py           # Perlin noise / image backgrounds
-│   │   ├── noise.py                # Sensor noise models
-│   │   └── expert_generator.py     # PID-based expert demonstrations
+│   ├── vla/                          # Core VLA model
+│   │   ├── diffusion_policy.py       # Full diffusion policy (training + inference)
+│   │   ├── diffusion_unet.py         # 1D U-Net for noise prediction
+│   │   ├── visual_encoder.py         # ResNet-18 visual backbone
+│   │   ├── text_encoder.py           # CLIP text encoder + caching
+│   │   ├── condition_embed.py        # Visual-text fusion MLP
+│   │   ├── noise_scheduler.py        # DDPM/DDIM noise schedule
+│   │   └── inference.py              # Closed-loop controller
+│   ├── simulator/                    # Microscope simulator
+│   │   ├── environment.py            # Gym-like microscope env
+│   │   ├── renderer.py               # Image composition pipeline
+│   │   ├── targets.py                # Target generators (real image + procedural)
+│   │   ├── stage.py                  # Simulated Nikon Ti2E stage
+│   │   ├── background.py             # Background generators
+│   │   ├── noise.py                  # Sensor noise models
+│   │   ├── optics.py                 # Optical effects (PSF, vignetting)
+│   │   └── expert_generator.py       # PID-based expert demonstrations
 │   ├── data/
-│   │   ├── dataset.py              # Trajectory dataset with sliding window
-│   │   └── augmentation.py         # Flip, brightness, noise augmentation
+│   │   ├── dataset.py                # Trajectory dataset with sliding window
+│   │   └── augmentation.py           # Flip, brightness, noise augmentation
 │   ├── training/
-│   │   ├── trainer.py              # Training loop with TensorBoard
-│   │   ├── evaluator.py            # Batch policy evaluation
-│   │   └── metrics.py              # Success rate, distance, smoothness
+│   │   ├── trainer.py                # Training loop with TensorBoard
+│   │   ├── evaluator.py              # Batch policy evaluation
+│   │   └── metrics.py                # Success rate, distance, smoothness
 │   ├── ui/
-│   │   ├── inference_panel.py      # Tkinter GUI for interactive testing
-│   │   └── simulator_viewer.py     # OpenCV-based simulator viewer
+│   │   ├── inference_panel.py        # Tkinter GUI for interactive testing
+│   │   └── simulator_viewer.py       # OpenCV-based simulator viewer
 │   ├── interfaces/
-│   │   └── stage_interface.py      # Abstract stage API (sim ↔ real)
+│   │   └── stage_interface.py        # Abstract stage API (sim ↔ real)
 │   └── utils/
-│       ├── config.py               # Dataclass configs + YAML loaders
-│       ├── logger.py               # Logging setup
-│       └── perlin.py               # Perlin noise generator
-├── tests/                          # Unit tests
-├── doc/
-│   └── paper-design.md             # Research design document
+│       ├── config.py                 # Dataclass configs + YAML loaders
+│       ├── logger.py                 # Logging setup
+│       └── perlin.py                 # Perlin noise generator
+├── tests/                            # Unit tests (44 tests)
 └── requirements.txt
 ```
 
@@ -120,23 +132,38 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### Step 1: Generate Expert Demonstrations
+### Step 0: Prepare Background Images
 
-The simulator uses a PID controller to automatically generate expert trajectories:
+Extract clean background patches from real microscopy video frames:
 
 ```bash
-# Generate data for a single task
-python scripts/generate_data.py --task microsphere --num-trajectories 5000
+python scripts/extract_backgrounds.py \
+    --source-dir /path/to/microscopy/frames \
+    --output-dir data/backgrounds \
+    --patch-size 640 \
+    --num-frames 200 \
+    --patches-per-frame 5
+```
 
-# Generate data for all tasks (microsphere, yeast, sperm_head, sperm_tail)
-python scripts/generate_data.py --all-tasks --num-trajectories 5000
+This creates 640×640 grayscale background patches used by the simulator.
 
-# Parallel generation with multiple workers
-python scripts/generate_data.py --all-tasks --num-trajectories 5000 --workers 4
+### Step 1: Generate Expert Demonstrations
+
+The simulator uses a PID controller to automatically generate expert trajectories using real cell images:
+
+```bash
+# Generate data for all tasks (default: embryo, oocyte, real_sperm_head, whole_sperm, microsphere)
+python scripts/generate_data.py --num-trajectories 100
+
+# Generate data for a specific task
+python scripts/generate_data.py --task embryo --num-trajectories 50
+
+# Generate with multiple workers
+python scripts/generate_data.py --num-trajectories 500 --workers 4
 ```
 
 Each trajectory is saved as a folder containing:
-- `images/` — sequence of JPEG frames (224×224)
+- `images/` — sequence of JPEG frames (640×640 grayscale)
 - `actions.npy` — (T, 2) array of (dx, dy) pixel displacements
 - `positions.npy` — (T+1, 2) target positions
 - `meta.json` — trajectory metadata
@@ -150,10 +177,11 @@ python scripts/train.py --precompute-text --tasks all
 ```
 
 This creates `data/text_embeddings.pt` containing 512-dim CLIP embeddings for each task instruction:
-- `"Navigate the microsphere to the red laser dot."`
-- `"Navigate the yeast cell to the red laser dot."`
+- `"Navigate the embryo to the red laser dot."`
+- `"Navigate the oocyte to the red laser dot."`
 - `"Navigate the sperm head to the red laser dot."`
 - `"Navigate the sperm tail tip to the red laser dot."`
+- `"Navigate the microsphere to the red laser dot."`
 
 ### Step 3: Train the Diffusion Policy
 
@@ -162,7 +190,7 @@ This creates `data/text_embeddings.pt` containing 512-dim CLIP embeddings for ea
 python scripts/train.py --model diffusion_policy --tasks all
 
 # Train on specific tasks
-python scripts/train.py --model diffusion_policy --tasks microsphere,yeast
+python scripts/train.py --model diffusion_policy --tasks embryo,oocyte
 
 # Resume from checkpoint
 python scripts/train.py --model diffusion_policy --tasks all --resume data/checkpoints/epoch_0100.pt
@@ -170,10 +198,8 @@ python scripts/train.py --model diffusion_policy --tasks all --resume data/check
 # Use GPU
 python scripts/train.py --model diffusion_policy --tasks all --device cuda
 
-# Custom configs
-python scripts/train.py --model diffusion_policy --tasks all \
-    --model-config configs/model/diffusion_policy.yaml \
-    --training-config configs/training/default.yaml
+# Custom image size (must match simulator)
+python scripts/train.py --model diffusion_policy --tasks all --img-size 640
 ```
 
 Training outputs:
@@ -190,16 +216,13 @@ tensorboard --logdir data/runs
 
 ```bash
 # Evaluate on a single task (100 episodes)
-python scripts/eval.py --checkpoint data/checkpoints/best.pt --task microsphere --episodes 100
+python scripts/eval.py --checkpoint data/checkpoints/best.pt --task embryo --episodes 100
 
 # Evaluate on all tasks
 python scripts/eval.py --checkpoint data/checkpoints/best.pt --all-tasks --episodes 100
 
 # Save results to JSON
 python scripts/eval.py --checkpoint data/checkpoints/best.pt --all-tasks --episodes 100 --output results.json
-
-# Use GPU for faster inference
-python scripts/eval.py --checkpoint data/checkpoints/best.pt --all-tasks --device cuda
 ```
 
 Output metrics:
@@ -219,15 +242,80 @@ python scripts/run_inference_panel.py --checkpoint data/checkpoints/best.pt --de
 
 The GUI provides:
 - **Left panel**: Task selector, noise/domain-rand toggles, speed control, step/auto buttons
-- **Center**: Real-time microscope view with trajectory overlay (green), target crosshair (green), laser crosshair (red), action arrow (yellow)
-- **Right panel**: Live metrics (distance, steps, success/fail), episode summary (success rate, avg distance, avg smoothness), predicted action (dx, dy)
+- **Center**: Real-time microscope view with trajectory overlay
+- **Right panel**: Live metrics (distance, steps, success/fail), episode summary
 - **Keyboard shortcuts**: `Space/S` = step, `A` = auto-run, `R` = reset, `1-4` = switch task, `Q/Esc` = quit
 
-## Method Details
+### Step 6: Visualize Trajectories
 
-### Architecture
+```bash
+# Animate a single trajectory
+python scripts/visualize_trajectories.py --traj-dir data/trajectories/embryo/traj_00000 --animate
 
-The model follows a **conditional diffusion policy** architecture with four main components:
+# Animate from a task directory
+python scripts/visualize_trajectories.py --task-dir data/trajectories/embryo --animate --frame-size 640 --no-overlay --output output/traj_embryo.mp4
+
+# Grid view of multiple trajectories
+python scripts/visualize_trajectories.py --task-dir data/trajectories/embryo --num-show 6 --output output/grid.png
+```
+
+## Simulator Design
+
+### Rendering Pipeline
+
+The simulator renders synthetic microscope images that match real camera output:
+
+1. **Background**: Load real microscopy background patches (grayscale, 640×640)
+2. **Target**: Paste real cell image with edge blending (soft alpha, brightness adaptation)
+3. **Laser**: Draw bright gray dot at image center (grayscale, not red)
+4. **Output**: Pure grayscale 3-channel image (all channels identical)
+
+**Important**: The simulator uses **no noise, no optical effects, no domain randomization** by default (`clean_640.yaml`). This produces clean training data that matches the real camera's grayscale output.
+
+### Target Generators
+
+| Task | Generator | Source | Reference Point |
+|------|-----------|--------|-----------------|
+| embryo | `RealImageTargetGenerator` | `data/pre-individual-obj/individual_obj/embryo/` | Image center |
+| oocyte | `RealImageTargetGenerator` | `data/pre-individual-obj/individual_obj/oocyte/` | Image center |
+| real_sperm_head | `RealImageTargetGenerator` | `data/pre-individual-obj/individual_obj/sperm_head/` | Image center |
+| whole_sperm | `SpermTailFromImageGenerator` | `data/pre-individual-obj/individual_obj/whole_sperm/` | Tail tip |
+| microsphere | `MicrosphereGenerator` | Procedural (no real images) | Circle center |
+
+**Real image generators** load pre-segmented PNG images with alpha channels (alpha = mask), auto-scale to fit the target image, and apply edge blur for smooth blending.
+
+**SpermTailFromImageGenerator** additionally loads pre-computed tail tip positions from `data/sperm_tail_tips.json` (generated by `scripts/preprocess_sperm_tail_tips.py`).
+
+### Scale Factor Mechanism
+
+All pixel-based parameters auto-scale based on resolution:
+
+```python
+scale_factor = min(image_size) / reference_size  # reference = 224
+```
+
+This ensures consistent physical proportions at any resolution:
+- Start distance: 50-200 px × scale_factor
+- Success tolerance: 2.0 px × scale_factor
+- Action clipping: 30.0 px/step × scale_factor
+- Target sizes: scaled proportionally
+
+### Stage Simulation
+
+- Mirrors the real Nikon Ti2E stage API (`src/interfaces/stage_interface.py`)
+- Tracks position in micrometers with configurable range
+- Pixel-to-micrometer conversion with ±10% random calibration error per episode
+
+### Expert Demonstrations
+
+- PID controller navigates target reference point to laser dot
+- Random action noise added to simulate human operator jitter
+- Action magnitude clipped to 30 px/step (scaled by resolution)
+- Each trajectory records: images (JPEG), actions (npy), positions (npy), metadata (json)
+
+## Architecture
+
+The model follows a **conditional diffusion policy** architecture:
 
 ```
                     ┌─────────────────┐
@@ -262,9 +350,6 @@ The model follows a **conditional diffusion policy** architecture with four main
 │  t (timestep)                │
 │  c (condition)               │
 │                              │
-│  FiLM conditioning at        │
-│  each down/up block          │
-│                              │
 │  → predicted noise           │
 └──────────────┬───────────────┘
                │
@@ -277,88 +362,15 @@ The model follows a **conditional diffusion policy** architecture with four main
 └──────────────────────────────┘
 ```
 
-#### 1. Visual Encoder (`src/vla/visual_encoder.py`)
+### Components
 
-- **Backbone**: ResNet-18 (pretrained on ImageNet)
-- **Input modification**: First conv layer modified to accept `obs_horizon × 3` channels (2 RGB frames stacked = 6 channels). Pretrained weights are replicated across new channels.
-- **Output**: 256-dim feature vector via `Linear → ReLU → LayerNorm`
-- **Observation horizon**: 2 frames (provides temporal context for motion estimation)
-
-#### 2. Text Encoder (`src/vla/text_encoder.py`)
-
-- **Model**: CLIP ViT-B/32 (`openai/clip-vit-base-patch32`)
-- **Usage**: CLIP is used only once before training to precompute 512-dim embeddings for each task's fixed language instruction. The full CLIP model is **not** loaded during training or inference.
-- **Caching**: Embeddings are saved to `data/text_embeddings.pt` and loaded as a simple dictionary.
-
-#### 3. Condition Embedding (`src/vla/condition_embed.py`)
-
-Fuses visual and text features into a single conditioning vector:
-
-```
-concat(visual_256, text_512) → Linear(768→512) → ReLU → Dropout(0.1)
-                             → Linear(512→256) → ReLU → Dropout(0.1)
-                             → Linear(256→256) → LayerNorm
-```
-
-Output: 256-dim condition vector `c` that drives the diffusion U-Net via FiLM modulation.
-
-#### 4. Diffusion U-Net (`src/vla/diffusion_unet.py`)
-
-A **1D convolutional U-Net** that predicts noise from noisy action sequences:
-
-- **Input**: Noisy actions `(B, 2, 10)` + timestep `t` + condition `c`
-- **Output**: Predicted noise `(B, 2, 10)`
-- **Architecture**:
-  - **Timestep embedding**: Sinusoidal positional encoding → MLP → 256-dim
-  - **Combined conditioning**: `[time_emb; cond]` → Linear → 256-dim FiLM vector
-  - **Encoder**: `Conv1d(2→64) → DownBlock(64→128) → DownBlock(128→256)`
-  - **Bottleneck**: Two Conv1d layers with FiLM conditioning
-  - **Decoder**: `UpBlock(256+128→128) → UpBlock(128+64→64)` with skip connections
-  - **Output**: `Conv1d(64→2)`, interpolated to match horizon
-- **FiLM conditioning**: At each block, the condition vector produces scale and shift parameters: `output = x * (1 + scale) + shift`
-- **DownBlock**: `Conv1d(stride=2) → GroupNorm → ReLU → Conv1d → GroupNorm → FiLM → ReLU + residual`
-- **UpBlock**: `Upsample(2×) → cat(skip) → Conv1d → GroupNorm → ReLU → Conv1d → GroupNorm → FiLM → ReLU + residual`
-
-#### 5. Noise Scheduler (`src/vla/noise_scheduler.py`)
-
-- **Training schedule**: 100 diffusion steps with cosine beta schedule
-- **Inference schedule**: DDIM with 10 steps (10× faster than DDPM)
-- **Forward diffusion**: `x_t = √(ᾱ_t) · x_0 + √(1-ᾱ_t) · ε`
-- **DDIM step**: Deterministic reverse process — predicts `x_0` from `x_t` and noise prediction, then computes `x_{t-1}`
-
-### Training Procedure
-
-**Loss**: Standard denoising score matching — MSE between predicted noise and actual noise:
-
-```python
-# Pseudocode
-visual_feat = visual_encoder(obs_seq)           # (B, 256)
-cond = condition_embed(visual_feat, text_emb)   # (B, 256)
-noise = randn(B, 2, 10)                         # random noise
-t = randint(0, 100)                             # random timestep
-noisy_actions = scheduler.add_noise(actions, noise, t)
-noise_pred = unet(noisy_actions, t, cond)
-loss = MSE(noise_pred, noise)
-```
-
-**Optimizer**: AdamW (lr=1e-4, weight_decay=1e-6)
-
-**Scheduler**: Cosine decay with linear warmup (10 epochs warmup, 500 total epochs)
-
-**Data augmentation** (`src/data/augmentation.py`):
-- Random horizontal flip (p=0.5) — flips both images and x-action
-- Random brightness/contrast jitter
-- Gaussian noise injection
-
-**Training tricks**:
-- Gradient accumulation support
-- Early stopping on validation loss (patience=100)
-- Periodic checkpointing every 50 epochs
-- TensorBoard logging (loss, learning rate)
+1. **Visual Encoder** (`src/vla/visual_encoder.py`): ResNet-18, first conv modified for 6 channels (2 stacked RGB frames), output 256-dim
+2. **Text Encoder** (`src/vla/text_encoder.py`): CLIP ViT-B/32, pre-computed 512-dim embeddings
+3. **Condition Embedding** (`src/vla/condition_embed.py`): Concat(visual, text) → MLP → 256-dim
+4. **Diffusion U-Net** (`src/vla/diffusion_unet.py`): 1D U-Net with FiLM conditioning, input (B,2,10), output (B,2,10)
+5. **Noise Scheduler** (`src/vla/noise_scheduler.py`): 100 training steps (cosine), 10 DDIM inference steps
 
 ### Inference (Closed-Loop Control)
-
-At test time, the model runs in a **closed-loop** fashion:
 
 ```
 obs_history = [env.reset()]
@@ -370,63 +382,43 @@ while not done:
     obs_history.append(obs)
 ```
 
-**Key design**: The model predicts a 10-step action sequence but only executes the first step. The next observation triggers a new prediction. This **receding horizon** approach provides robustness to compounding errors.
-
-### Simulator Design (`src/simulator/`)
-
-The simulator renders synthetic microscope images with full control over visual appearance:
-
-**Rendering pipeline** (`renderer.py`):
-1. Generate Perlin noise background (or load real image crops)
-2. Paste target object mask at specified position (alpha blending)
-3. Draw red laser dot at image center (radius=3 px)
-4. Apply domain randomization (brightness, contrast, Gaussian blur)
-5. Apply sensor noise (Gaussian, salt-pepper, flicker, motion blur)
-
-**Target generators** (`targets.py`):
-| Target | Shape | Size | Reference Point |
-|--------|-------|------|-----------------|
-| Microsphere | Circle (solid or ring) | r=15-25 px | Center |
-| Yeast | Ellipse + sinusoidal bumps | major=20-35 px | Center |
-| Sperm head | Ellipse + tapered tip | major=18-28 px | Center |
-| Sperm tail | Cubic Bezier curve + head | length=40-100 px | Tip endpoint |
-
-**Stage simulation** (`stage.py`):
-- Mirrors the real Nikon Ti2E stage API (abstract interface in `interfaces/stage_interface.py`)
-- Tracks position in micrometers with configurable range
-- Pixel-to-micrometer conversion with ±10% random calibration error per episode
-
-**Expert demonstrations** (`expert_generator.py`):
-- PID controller navigates target reference point to laser dot
-- Random action noise added to simulate human operator jitter
-- Action magnitude clipped to 30 px/step
-- Each trajectory records: images (JPEG), actions (npy), positions (npy), metadata (json)
-
-### Evaluation Metrics (`src/training/metrics.py`)
-
-| Metric | Definition |
-|--------|------------|
-| **Success Rate** | Fraction of episodes with final distance < 2 px |
-| **Mean Final Distance** | Average Euclidean distance (px) from target to laser at episode end |
-| **Trajectory Smoothness** | Mean absolute angular change between consecutive action vectors (range [0, π], lower = smoother) |
-| **Trajectory Length** | Number of steps until done |
+The model predicts a 10-step action sequence but only executes the first step (receding horizon).
 
 ## Configuration
+
+### Simulator Config (`configs/simulator/clean_640.yaml`)
+
+```yaml
+image_size: [640, 640]
+reference_size: 224
+um_per_pixel: 0.5
+max_steps_per_episode: 200
+success_tolerance_px: 2.0
+start_distance_min: 50.0
+start_distance_max: 200.0
+
+noise: null              # No noise
+domain_randomization: null  # No domain randomization
+optics: null             # No optical effects
+
+background_type: "image"
+background_image_dir: "data/backgrounds"
+```
 
 ### Model Config (`configs/model/diffusion_policy.yaml`)
 
 ```yaml
-obs_horizon: 2              # Number of observation frames
-pred_horizon: 10            # Action sequence length
-action_dim: 2               # (dx, dy) displacement
+obs_horizon: 2
+pred_horizon: 10
+action_dim: 2
 visual_backbone: "resnet18"
 visual_output_dim: 256
-text_dim: 512               # CLIP embedding dimension
+text_dim: 512
 condition_hidden_dims: [512, 256]
 condition_output_dim: 256
-unet_dims: [64, 128, 256]   # U-Net channel progression
-num_diffusion_steps: 100    # Training diffusion steps
-num_ddim_steps: 10          # DDIM inference steps
+unet_dims: [64, 128, 256]
+num_diffusion_steps: 100
+num_ddim_steps: 10
 beta_schedule: "cosine"
 ```
 
@@ -446,63 +438,34 @@ early_stopping_patience: 100
 log_dir: "data/runs"
 ```
 
-### Simulator Config (`configs/simulator/default.yaml`)
-
-```yaml
-image_size: [224, 224]
-um_per_pixel: 0.5
-um_per_pixel_noise: 0.1        # ±10% calibration error
-max_steps_per_episode: 200
-success_tolerance_px: 2.0
-start_distance_min: 50.0       # Min start distance from laser
-start_distance_max: 200.0      # Max start distance from laser
-
-noise:
-  gaussian_std: 5.0
-  salt_pepper_prob: 0.02
-  flicker_prob: 0.1
-  motion_blur_prob: 0.05
-
-domain_randomization:
-  brightness_range: [0.5, 1.5]
-  contrast_range: [0.5, 1.5]
-  blur_sigma_max: 2.0
-  blur_prob: 0.3
-```
-
 ## Testing
 
 ```bash
-# Run unit tests
-pytest tests/
+# Run all tests (44 tests)
+pytest tests/ -v
 
-# Run specific test file
-pytest tests/test_simulator.py
-pytest tests/test_vla.py
+# Run simulator tests only
+pytest tests/test_simulator.py -v
+
+# Run realistic sim tests only
+pytest tests/test_realistic_sim.py -v
+
+# Run VLA model tests (requires PyTorch)
+pytest tests/test_vla.py -v
 ```
 
 ## Sim-to-Real Transfer
 
 The framework is designed for two-stage deployment on real microscopes:
 
-1. **Stage 1 — Simulation training**: Train with full domain randomization (backgrounds, lighting, noise, calibration error) on 5000+ generated trajectories per task.
+1. **Stage 1 — Simulation training**: Train with clean simulation data (640×640 grayscale) on 100+ generated trajectories per task.
 
-2. **Stage 2 — Real-world fine-tuning**: Collect 10-20 real demonstrations on the Nikon Ti2E microscope, then fine-tune the pretrained model with a low learning rate for 50-100 epochs. Optionally freeze the visual encoder and only fine-tune the U-Net action head.
+2. **Stage 2 — Real-world fine-tuning**: Collect 10-20 real demonstrations on the Nikon Ti2E microscope, then fine-tune the pretrained model with a low learning rate.
 
-The `StageInterface` abstraction (`src/interfaces/stage_interface.py`) allows swapping between `StageSimulator` and a real `NikonTi2EStage` implementation with a single line change in the environment constructor.
+**Deployment**: Center-crop 640×640 from the real camera's 1600×1200 image (no resize needed, preserves original pixel detail at 0.5 μm/pixel).
+
+The `StageInterface` abstraction (`src/interfaces/stage_interface.py`) allows swapping between `StageSimulator` and a real `NikonTi2EStage` implementation with a single line change.
 
 ## License
 
 [Your license here]
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@article{your_citation,
-  title={Vision-Language-Action Diffusion Policy for Micro-Object Navigation},
-  author={Simon Yang},
-  year={2026}
-}
-```

@@ -7,7 +7,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pytest
-import torch
+
+try:
+    import torch
+except (ImportError, OSError):
+    pytest.skip("PyTorch not available or DLL loading failed", allow_module_level=True)
 
 from src.utils.config import (
     SimulatorConfig,

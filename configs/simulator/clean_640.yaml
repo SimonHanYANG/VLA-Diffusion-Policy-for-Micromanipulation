@@ -1,0 +1,23 @@
+# Clean 640x640 configuration - no noise, no domain randomization, no optics
+# 适用于真机部署: 1600x1200 中心裁剪 640x640
+image_size: [640, 640]
+reference_size: 224
+um_per_pixel: 0.5
+um_per_pixel_noise: 0.1
+max_steps_per_episode: 200
+success_tolerance_px: 2.0
+start_distance_min: 50.0
+start_distance_max: 200.0
+
+# No noise
+noise: null
+
+# No domain randomization
+domain_randomization: null
+
+# No optics
+optics: null
+
+# Use real microscopy backgrounds
+background_type: "image"
+background_image_dir: "data/backgrounds"

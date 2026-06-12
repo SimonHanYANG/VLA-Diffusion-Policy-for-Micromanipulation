@@ -1,6 +1,7 @@
 # Data & large files
 data/
 !data/backgrounds/.gitkeep
+output/
 *.pt
 *.pth
 *.ckpt

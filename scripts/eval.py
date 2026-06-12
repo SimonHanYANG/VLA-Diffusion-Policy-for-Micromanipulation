@@ -80,7 +80,7 @@ def main():
     text_cache = CachedTextEmbeddings(args.text_cache)
 
     # Determine tasks
-    ALL_TASKS = ["microsphere", "yeast", "sperm_head", "sperm_tail"]
+    ALL_TASKS = ["embryo", "oocyte", "real_sperm_head", "whole_sperm", "microsphere"]
     if args.all_tasks:
         task_names = ALL_TASKS
     elif args.task:

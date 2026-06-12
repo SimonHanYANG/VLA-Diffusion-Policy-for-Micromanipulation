@@ -1,9 +1,14 @@
-"""Generate expert demonstration trajectories for all tasks.
+"""Generate expert demonstration trajectories using real cell images.
 
 Usage:
-  python scripts/generate_data.py --task microsphere --num-trajectories 100
-  python scripts/generate_data.py --all-tasks --num-trajectories 5000 --workers 4
-  python scripts/generate_data.py --task sperm_head --background-type image --background-dir data/backgrounds
+  # Generate all tasks (embryo, oocyte, real_sperm_head, whole_sperm, microsphere)
+  python scripts/generate_data.py --num-trajectories 100
+
+  # Generate a specific task
+  python scripts/generate_data.py --task embryo --num-trajectories 50
+
+  # Generate with multiple workers
+  python scripts/generate_data.py --num-trajectories 500 --workers 4
 """
 
 import sys
@@ -16,7 +21,7 @@ import argparse
 import multiprocessing as mp
 from typing import List
 
-from src.simulator.background import BackgroundGeneratorFactory, PerlinNoiseBackground
+from src.simulator.background import BackgroundGeneratorFactory
 from src.simulator.expert_generator import ExpertDemonstrationGenerator
 from src.simulator.targets import create_target_generator
 from src.utils.config import (
@@ -26,6 +31,9 @@ from src.utils.config import (
     load_task_config,
 )
 
+# All available tasks (real cell images + procedural microsphere)
+ALL_TASKS = ["embryo", "oocyte", "real_sperm_head", "whole_sperm", "microsphere"]
+
 
 def generate_task(
     task_name: str,
@@ -34,7 +42,7 @@ def generate_task(
     output_root: Path,
     num_trajectories: int,
     seed: int,
-    background_type: str = "perlin",
+    background_type: str = "image",
     background_dir: str | None = None,
 ) -> Path:
     """Generate trajectories for a single task."""
@@ -69,24 +77,24 @@ def generate_task(
 def main():
     parser = argparse.ArgumentParser(description="Generate expert demonstration trajectories.")
     parser.add_argument("--task", type=str, default=None,
-                        help="Task name (microsphere, yeast, sperm_head, sperm_tail)")
-    parser.add_argument("--all-tasks", action="store_true",
-                        help="Generate data for all tasks")
-    parser.add_argument("--num-trajectories", type=int, default=5000,
+                        help=f"Task name. Available: {ALL_TASKS}")
+    parser.add_argument("--all-tasks", action="store_true", default=True,
+                        help="Generate data for all tasks (default)")
+    parser.add_argument("--num-trajectories", type=int, default=100,
                         help="Number of trajectories per task")
     parser.add_argument("--workers", type=int, default=1,
                         help="Number of parallel workers")
     parser.add_argument("--output-root", type=str, default="data/trajectories",
                         help="Output root directory")
-    parser.add_argument("--sim-config", type=str, default="configs/simulator/default.yaml",
+    parser.add_argument("--sim-config", type=str, default="configs/simulator/clean_640.yaml",
                         help="Path to simulator config YAML")
-    parser.add_argument("--seed", type=int, default=0,
+    parser.add_argument("--seed", type=int, default=42,
                         help="Base random seed")
-    parser.add_argument("--background-type", type=str, default="perlin",
+    parser.add_argument("--background-type", type=str, default="image",
                         choices=["perlin", "image"],
-                        help="Background type: 'perlin' for synthetic, 'image' for real microscopy backgrounds")
+                        help="Background type: 'image' for real microscopy backgrounds (default)")
     parser.add_argument("--background-dir", type=str, default="data/backgrounds",
-                        help="Directory containing background images (used when --background-type=image)")
+                        help="Directory containing background images")
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
@@ -96,10 +104,8 @@ def main():
 
     if args.task:
         task_names = [args.task]
-    elif args.all_tasks:
-        task_names = ["microsphere", "yeast", "sperm_head", "sperm_tail"]
     else:
-        parser.error("Specify --task or --all-tasks")
+        task_names = ALL_TASKS
 
     # Load task configs
     task_configs: List[TaskConfig] = []

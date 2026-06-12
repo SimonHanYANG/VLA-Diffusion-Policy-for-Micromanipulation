@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Tuple, get_args, get_origin
+from typing import Any, List, Tuple, get_args, get_origin
 
 import yaml
 
@@ -41,15 +41,58 @@ class OpticsConfig:
 @dataclass
 class SimulatorConfig:
     image_size: Tuple[int, int] = (224, 224)
+    reference_size: int = 224  # 像素参数所基于的参考分辨率
     um_per_pixel: float = 0.5
     um_per_pixel_noise: float = 0.1
     max_steps_per_episode: int = 200
     success_tolerance_px: float = 2.0
     start_distance_min: float = 50.0
     start_distance_max: float = 200.0
+
+    @property
+    def scale_factor(self) -> float:
+        """分辨率相对于 reference_size 的线性缩放系数。"""
+        return min(self.image_size) / self.reference_size
+
+    @property
+    def scaled_start_distance_min(self) -> float:
+        return self.start_distance_min * self.scale_factor
+
+    @property
+    def scaled_start_distance_max(self) -> float:
+        return self.start_distance_max * self.scale_factor
+
+    @property
+    def scaled_success_tolerance(self) -> float:
+        return self.success_tolerance_px * self.scale_factor
     noise: NoiseConfig = field(default_factory=NoiseConfig)
     domain_randomization: DomainRandConfig = field(default_factory=DomainRandConfig)
     optics: OpticsConfig = field(default_factory=OpticsConfig)
+    background_type: str = "single_image"  # "perlin", "image", "single_image", "multi_image"
+    background_image: str = "data/backgrounds_test/bg_00000.png"
+    background_brightness_range: Tuple[float, float] = (0.8, 1.2)
+
+    # 多背景图模式（用于 multi_image 类型）
+    background_images: List[str] = field(default_factory=lambda: [
+        "data/backgrounds_test/bg_00001.png",
+        "data/backgrounds_test/bg_00002.png",
+        "data/backgrounds_test/bg_00003.png",
+    ])
+
+    # 真实图片目标路径配置
+    real_image_targets: dict = field(default_factory=lambda: {
+        "yeast": "data/pre-individual-obj/individual_obj/embryo",
+        "embryo": "data/pre-individual-obj/individual_obj/embryo",
+        "sperm_head": "data/pre-individual-obj/individual_obj/sperm_head",
+        "sperm_tail": "data/pre-individual-obj/individual_obj/whole_sperm",
+    })
+
+    # 边缘融合参数
+    blend_factor_range: Tuple[float, float] = (0.6, 0.8)
+    edge_fade_ratio: float = 0.15
+    brightness_adapt_range: Tuple[float, float] = (0.5, 2.0)
+    edge_blur_kernel_range: Tuple[int, int] = (3, 9)
+    edge_blur_sigma_range: Tuple[float, float] = (0.8, 2.5)
 
 
 @dataclass
@@ -108,6 +151,9 @@ def _dict_to_dataclass(cls: type, data: dict) -> Any:
         if fld.name not in filtered:
             continue
         val = filtered[fld.name]
+        # Skip None values (YAML null) - keep field default
+        if val is None:
+            continue
         # Nested dataclass
         if _is_dataclass_type(fld.type):
             filtered[fld.name] = _dict_to_dataclass(fld.type, val)

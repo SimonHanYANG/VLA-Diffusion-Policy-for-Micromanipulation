@@ -2,8 +2,9 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+from pathlib import Path
 
-from src.simulator.background import BackgroundGenerator, PerlinNoiseBackground
+from src.simulator.background import BackgroundGenerator, MultiImageBackground, PerlinNoiseBackground, SingleImageBackground
 from src.simulator.noise import NoiseApplicator, NoiseConfig
 from src.simulator.renderer import MicroscopeRenderer
 from src.simulator.stage import StageSimulator
@@ -29,17 +30,38 @@ class MicroscopeEnvironment:
     ):
         self.config = config
         self.target_generator = target_generator
-        self.background = background or PerlinNoiseBackground()
+
+        # 根据配置创建背景生成器
+        if background is not None:
+            self.background = background
+        elif config.background_type == "multi_image":
+            self.background = MultiImageBackground(
+                image_paths=config.background_images,
+                brightness_range=config.background_brightness_range,
+            )
+        elif config.background_type == "single_image":
+            self.background = SingleImageBackground(
+                image_path=Path(config.background_image),
+                brightness_range=config.background_brightness_range,
+            )
+        else:
+            self.background = PerlinNoiseBackground()
+
         self.stage = stage or StageSimulator()
         self.stage.connect()
 
-        noise_applicator = NoiseApplicator(config.noise) if config.noise else NoiseApplicator()
+        noise_applicator = NoiseApplicator(config.noise) if config.noise else None
         self.renderer = MicroscopeRenderer(
             image_size=config.image_size,
             background=self.background,
             noise=noise_applicator,
-            domain_rand=config.domain_randomization or DomainRandConfig(),
-            optics=config.optics or OpticsConfig(),
+            domain_rand=config.domain_randomization,
+            optics=config.optics,  # Pass None directly, don't fallback to OpticsConfig()
+            blend_factor_range=config.blend_factor_range,
+            edge_fade_ratio=config.edge_fade_ratio,
+            brightness_adapt_range=config.brightness_adapt_range,
+            edge_blur_kernel_range=config.edge_blur_kernel_range,
+            edge_blur_sigma_range=config.edge_blur_sigma_range,
         )
 
         # State
@@ -62,14 +84,15 @@ class MicroscopeEnvironment:
         # Generate target
         self.target_render = self.target_generator.generate(self.config.image_size, self.rng)
 
-        # Random start position 50-200 px from laser dot
+        # Random start position from laser dot (scaled for resolution)
         angle = self.rng.uniform(0, 2 * np.pi)
-        distance = self.rng.uniform(self.config.start_distance_min, self.config.start_distance_max)
+        distance = self.rng.uniform(self.config.scaled_start_distance_min, self.config.scaled_start_distance_max)
         start_x = self.laser_position[0] + distance * np.cos(angle)
         start_y = self.laser_position[1] + distance * np.sin(angle)
         h, w = self.config.image_size
-        start_x = np.clip(start_x, 20, w - 20)
-        start_y = np.clip(start_y, 20, h - 20)
+        margin = int(20 * self.config.scale_factor)
+        start_x = np.clip(start_x, margin, w - margin)
+        start_y = np.clip(start_y, margin, h - margin)
         self.target_position = np.array([start_x, start_y], dtype=np.float64)
 
         # Random scale factor with +/-10% noise to simulate calibration error
@@ -119,7 +142,7 @@ class MicroscopeEnvironment:
         reward = -distance
 
         # Done conditions
-        done = distance < self.config.success_tolerance_px
+        done = distance < self.config.scaled_success_tolerance
         if self.step_count >= self.config.max_steps_per_episode:
             done = True
 

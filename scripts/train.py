@@ -63,9 +63,11 @@ def main():
                         help="TensorBoard log directory (overrides config)")
     parser.add_argument("--precompute-text", action="store_true",
                         help="Precompute and cache text embeddings, then exit")
+    parser.add_argument("--img-size", type=int, default=224,
+                        help="Image size for training (should match simulator image_size)")
     args = parser.parse_args()
 
-    ALL_TASKS = ["microsphere", "yeast", "sperm_head", "sperm_tail"]
+    ALL_TASKS = ["embryo", "oocyte", "real_sperm_head", "whole_sperm", "microsphere"]
     if args.tasks == "all":
         task_names = ALL_TASKS
     else:
@@ -118,6 +120,7 @@ def main():
         text_embeddings=text_embeddings,
         obs_horizon=model_config.obs_horizon,
         pred_horizon=model_config.pred_horizon,
+        img_size=(args.img_size, args.img_size),
         transform=TrajectoryAugmentation(),
     )
 

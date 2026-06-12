@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 import numpy as np
 from tqdm import tqdm
 
-from src.simulator.background import BackgroundGenerator, PerlinNoiseBackground
+from src.simulator.background import BackgroundGenerator, MultiImageBackground, PerlinNoiseBackground, SingleImageBackground
 from src.simulator.environment import MicroscopeEnvironment
 from src.simulator.targets import TargetGenerator, create_target_generator
 from src.utils.config import SimulatorConfig, TaskConfig
@@ -144,8 +144,8 @@ class ExpertDemonstrationGenerator:
             noise = action_rng.standard_normal(2) * self.action_noise_std * np.linalg.norm(action)
             action_noisy = action + noise
 
-            # Clip action magnitude
-            max_step = 30.0
+            # Clip action magnitude (scaled for resolution)
+            max_step = 30.0 * self.config.scale_factor
             norm = np.linalg.norm(action_noisy)
             if norm > max_step:
                 action_noisy = action_noisy / norm * max_step
@@ -187,14 +187,41 @@ def generate_data_for_task(
     output_root: Path,
     num_trajectories: int = 5000,
     seed: int = 0,
+    background: BackgroundGenerator | None = None,
 ) -> list[Path]:
-    """Convenience function to generate data for a single task."""
+    """Convenience function to generate data for a single task.
+
+    Args:
+        task_config: Task configuration.
+        sim_config: Simulator configuration.
+        output_root: Root output directory.
+        num_trajectories: Number of trajectories to generate.
+        seed: Random seed.
+        background: Optional background generator. If None, creates from sim_config.
+    """
     target_gen = create_target_generator(
         task_config.target_generator, task_config.target_params
     )
+
+    # 根据配置创建背景生成器（如果未提供）
+    if background is None:
+        if sim_config.background_type == "multi_image":
+            background = MultiImageBackground(
+                image_paths=sim_config.background_images,
+                brightness_range=sim_config.background_brightness_range,
+            )
+        elif sim_config.background_type == "single_image":
+            background = SingleImageBackground(
+                image_path=Path(sim_config.background_image),
+                brightness_range=sim_config.background_brightness_range,
+            )
+        else:
+            background = PerlinNoiseBackground()
+
     gen = ExpertDemonstrationGenerator(
         config=sim_config,
         target_generator=target_gen,
+        background=background,
         pid_kp=task_config.pid_kp,
         pid_ki=task_config.pid_ki,
         pid_kd=task_config.pid_kd,

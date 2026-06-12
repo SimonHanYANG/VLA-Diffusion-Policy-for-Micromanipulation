@@ -105,8 +105,8 @@ def main():
                         help="Directory containing microscopy frames (jpg)")
     parser.add_argument("--output-dir", type=str, default="data/backgrounds",
                         help="Output directory for background patches")
-    parser.add_argument("--patch-size", type=int, default=224,
-                        help="Size of square patches to extract")
+    parser.add_argument("--patch-size", type=int, default=640,
+                        help="Size of square patches to extract (should match simulator image_size)")
     parser.add_argument("--num-frames", type=int, default=200,
                         help="Number of frames to sample from")
     parser.add_argument("--patches-per-frame", type=int, default=5,
