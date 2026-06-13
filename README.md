@@ -153,6 +153,7 @@ The simulator uses a PID controller to automatically generate expert trajectorie
 
 ```bash
 # Generate data for all tasks (default: embryo, oocyte, real_sperm_head, whole_sperm, microsphere)
+# Default: 100 trajectories per task, clean 640x640 config, real microscopy backgrounds
 python scripts/generate_data.py --num-trajectories 100
 
 # Generate data for a specific task
@@ -167,6 +168,8 @@ Each trajectory is saved as a folder containing:
 - `actions.npy` — (T, 2) array of (dx, dy) pixel displacements
 - `positions.npy` — (T+1, 2) target positions
 - `meta.json` — trajectory metadata
+
+Generated data is saved to `data/trajectories/<task_name>/traj_NNNNN/`.
 
 ### Step 2: Pre-compute Text Embeddings
 
@@ -248,14 +251,29 @@ The GUI provides:
 
 ### Step 6: Visualize Trajectories
 
-```bash
-# Animate a single trajectory
-python scripts/visualize_trajectories.py --traj-dir data/trajectories/embryo/traj_00000 --animate
+**Interactive UI Viewer** (recommended):
 
-# Animate from a task directory
+```bash
+python scripts/visualize_trajectory_ui.py
+```
+
+| 按键 | 功能 |
+|------|------|
+| `Space` / `→` | 下一帧 |
+| `←` | 上一帧 |
+| `N` / `P` | 下一条 / 上一条轨迹 |
+| `A` | 自动播放 / 暂停 |
+| `R` | 重置到第一帧 |
+| `1`-`5` | 切换任务 (embryo/oocyte/sperm_head/whole_sperm/microsphere) |
+| `Q` / `Esc` | 退出 |
+
+**Command-line Visualization**:
+
+```bash
+# Animate from a task directory (generate mp4)
 python scripts/visualize_trajectories.py --task-dir data/trajectories/embryo --animate --frame-size 640 --no-overlay --output output/traj_embryo.mp4
 
-# Grid view of multiple trajectories
+# Grid view of multiple trajectories (generate png)
 python scripts/visualize_trajectories.py --task-dir data/trajectories/embryo --num-show 6 --output output/grid.png
 ```
 
