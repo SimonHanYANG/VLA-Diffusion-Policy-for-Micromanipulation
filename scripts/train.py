@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--checkpoint-dir", type=str, default="data/checkpoints")
     parser.add_argument("--text-cache", type=str, default="data/text_embeddings.pt")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+    parser.add_argument("--auto-resume", action="store_true", help="Auto-resume from latest checkpoint if exists")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--log-dir", type=str, default=None,
@@ -159,8 +160,27 @@ def main():
         checkpoint_dir=Path(args.checkpoint_dir),
     )
 
+    # Resume from checkpoint
+    resume_path = None
     if args.resume:
-        trainer.load_checkpoint(Path(args.resume))
+        resume_path = Path(args.resume)
+    elif args.auto_resume:
+        # Find latest checkpoint (prefer best.pt, then latest epoch)
+        ckpt_dir = Path(args.checkpoint_dir)
+        best_ckpt = ckpt_dir / "best.pt"
+        if best_ckpt.exists():
+            resume_path = best_ckpt
+        else:
+            # Find latest epoch checkpoint
+            epoch_ckpts = sorted(ckpt_dir.glob("epoch_*.pt"), reverse=True)
+            if epoch_ckpts:
+                resume_path = epoch_ckpts[0]
+
+    if resume_path and resume_path.exists():
+        trainer.load_checkpoint(resume_path)
+        print(f"Resumed from {resume_path} (epoch {trainer.current_epoch})")
+    elif args.auto_resume:
+        print("No checkpoint found, starting from scratch")
 
     history = trainer.train()
     print(f"Training complete. Best val loss: {trainer.best_val_loss:.6f}")

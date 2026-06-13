@@ -1,8 +1,9 @@
 """Evaluate a trained model in the simulator.
 
 Usage:
-  python scripts/eval.py --checkpoint data/checkpoints/best.pt --task microsphere --episodes 100
+  python scripts/eval.py --checkpoint data/checkpoints/best.pt --task embryo --episodes 100
   python scripts/eval.py --checkpoint data/checkpoints/best.pt --all-tasks --episodes 100
+  python scripts/eval.py --auto-checkpoint --all-tasks --episodes 100  # auto-find best.pt
 """
 
 import sys
@@ -29,10 +30,23 @@ from src.vla.diffusion_policy import DiffusionPolicy
 from src.vla.text_encoder import CachedTextEmbeddings
 
 
+def find_latest_checkpoint(ckpt_dir: Path) -> Path | None:
+    """Find the best or latest checkpoint in directory."""
+    best_ckpt = ckpt_dir / "best.pt"
+    if best_ckpt.exists():
+        return best_ckpt
+    epoch_ckpts = sorted(ckpt_dir.glob("epoch_*.pt"), reverse=True)
+    if epoch_ckpts:
+        return epoch_ckpts[0]
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained policy.")
-    parser.add_argument("--checkpoint", type=str, required=True,
+    parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to model checkpoint")
+    parser.add_argument("--auto-checkpoint", action="store_true",
+                        help="Auto-find best checkpoint in data/checkpoints/")
     parser.add_argument("--task", type=str, default=None,
                         help="Task name to evaluate")
     parser.add_argument("--all-tasks", action="store_true",
@@ -70,7 +84,20 @@ def main():
         num_ddim_steps=model_config.num_ddim_steps,
         beta_schedule=model_config.beta_schedule,
     )
-    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+
+    # Find checkpoint
+    if args.auto_checkpoint:
+        ckpt_path = find_latest_checkpoint(Path("data/checkpoints"))
+        if ckpt_path is None:
+            print("Error: No checkpoint found in data/checkpoints/")
+            return
+        print(f"Auto-found checkpoint: {ckpt_path}")
+    elif args.checkpoint:
+        ckpt_path = Path(args.checkpoint)
+    else:
+        parser.error("Specify --checkpoint or --auto-checkpoint")
+
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
     model.eval()
