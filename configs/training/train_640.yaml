@@ -1,0 +1,12 @@
+# Training configuration for 640x640 images (smaller batch size due to GPU memory)
+batch_size: 8
+learning_rate: 0.0001
+weight_decay: 0.000001
+num_epochs: 500
+warmup_epochs: 10
+grad_accum_steps: 1
+val_split: 0.1
+val_freq_epochs: 10
+save_freq_epochs: 50
+early_stopping_patience: 100
+log_dir: "data/runs"

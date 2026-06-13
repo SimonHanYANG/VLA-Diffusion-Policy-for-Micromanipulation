@@ -16,10 +16,11 @@ class TextEncoder:
     """
 
     TASK_INSTRUCTIONS = {
+        "embryo": "Navigate the embryo to the red laser dot.",
+        "oocyte": "Navigate the oocyte to the red laser dot.",
+        "real_sperm_head": "Navigate the sperm head to the red laser dot.",
+        "whole_sperm": "Navigate the sperm tail tip to the red laser dot.",
         "microsphere": "Navigate the microsphere to the red laser dot.",
-        "yeast": "Navigate the yeast cell to the red laser dot.",
-        "sperm_head": "Navigate the sperm head to the red laser dot.",
-        "sperm_tail": "Navigate the sperm tail tip to the red laser dot.",
     }
 
     def __init__(self, model_name: str = "openai/clip-vit-base-patch32", device: str = "cpu"):
