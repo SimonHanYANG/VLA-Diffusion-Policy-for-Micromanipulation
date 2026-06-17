@@ -38,7 +38,7 @@ from src.vla.text_encoder import CachedTextEmbeddings, TextEncoder
 
 TASK_TYPES = ["microsphere", "yeast", "sperm_head", "sperm_tail"]
 DEFAULT_MODEL_CONFIG = "configs/model/diffusion_policy.yaml"
-DEFAULT_SIM_CONFIG = "configs/simulator/default.yaml"
+DEFAULT_SIM_CONFIG = "configs/simulator/clean_640.yaml"
 DEFAULT_TEXT_CACHE = "data/text_embeddings.pt"
 
 
