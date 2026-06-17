@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import torch
 
 from src.simulator.environment import MicroscopeEnvironment
-from src.simulator.targets import get_target_generator_for_task
+from src.simulator.targets import create_target_generator, get_target_generator_for_task
+from src.utils.config import load_task_config
 from src.training.metrics import EpisodeMetrics
 from src.utils.config import (
     DiffusionPolicyConfig,
@@ -36,7 +37,7 @@ from src.utils.config import (
 from src.vla.diffusion_policy import DiffusionPolicy
 from src.vla.text_encoder import CachedTextEmbeddings, TextEncoder
 
-TASK_TYPES = ["microsphere", "yeast", "sperm_head", "sperm_tail"]
+TASK_TYPES = ["embryo", "oocyte", "real_sperm_head", "whole_sperm", "microsphere"]
 DEFAULT_MODEL_CONFIG = "configs/model/diffusion_policy.yaml"
 DEFAULT_SIM_CONFIG = "configs/simulator/clean_640.yaml"
 DEFAULT_TEXT_CACHE = "data/text_embeddings.pt"
@@ -90,8 +91,8 @@ class InferencePanel:
         # Build UI
         self.root = tk.Tk()
         self.root.title("VLA Inference Panel")
-        self.root.geometry("1050x650")
-        self.root.minsize(900, 500)
+        self.root.geometry("1200x750")
+        self.root.minsize(1000, 600)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._setup_menu()
@@ -199,7 +200,7 @@ class InferencePanel:
         self.seed_label.pack(anchor=tk.W, **pad)
 
         # Noise toggle
-        self.noise_var = tk.BooleanVar(value=True)
+        self.noise_var = tk.BooleanVar(value=self.sim_config.noise is not None)
         self.noise_cb = ttk.Checkbutton(
             self.left_frame, text="Sensor Noise", variable=self.noise_var,
             command=self._on_noise_toggle,
@@ -207,7 +208,7 @@ class InferencePanel:
         self.noise_cb.pack(anchor=tk.W, **pad)
 
         # Domain rand toggle
-        self.dr_var = tk.BooleanVar(value=True)
+        self.dr_var = tk.BooleanVar(value=self.sim_config.domain_randomization is not None)
         self.dr_cb = ttk.Checkbutton(
             self.left_frame, text="Domain Randomization", variable=self.dr_var,
             command=self._on_dr_toggle,
@@ -376,6 +377,7 @@ class InferencePanel:
         self.root.bind("2", lambda e: self._set_task(1))
         self.root.bind("3", lambda e: self._set_task(2))
         self.root.bind("4", lambda e: self._set_task(3))
+        self.root.bind("5", lambda e: self._set_task(4))
 
     # ------------------------------------------------------------------
     # Model loading
@@ -469,7 +471,13 @@ class InferencePanel:
     def _init_env(self) -> None:
         """Create the microscope environment and inference controller."""
         task_name = TASK_TYPES[self.task_idx]
-        target_gen = get_target_generator_for_task(task_name)
+        # Try loading from YAML config first, fallback to built-in generator
+        cfg_path = Path(f"configs/simulator/{task_name}.yaml")
+        if cfg_path.exists():
+            task_config = load_task_config(cfg_path)
+            target_gen = create_target_generator(task_config.target_generator, task_config.target_params)
+        else:
+            target_gen = get_target_generator_for_task(task_name)
         self.env = MicroscopeEnvironment(config=self.sim_config, target_generator=target_gen)
 
         # If model loaded with text cache, we could use ClosedLoopController,
@@ -530,15 +538,11 @@ class InferencePanel:
         self._on_reset()
 
     def _on_noise_toggle(self) -> None:
-        if self.sim_config.noise is not None:
-            from src.utils.config import NoiseConfig
-            if self.noise_var.get():
-                self.sim_config.noise = NoiseConfig()
-            else:
-                self.sim_config.noise = NoiseConfig(
-                    gaussian_std=0.0, salt_pepper_prob=0.0,
-                    flicker_prob=0.0, motion_blur_prob=0.0,
-                )
+        from src.utils.config import NoiseConfig
+        if self.noise_var.get():
+            self.sim_config.noise = NoiseConfig()
+        else:
+            self.sim_config.noise = None
         self._init_env()
 
     def _on_dr_toggle(self) -> None:
@@ -546,10 +550,7 @@ class InferencePanel:
         if self.dr_var.get():
             self.sim_config.domain_randomization = DomainRandConfig()
         else:
-            self.sim_config.domain_randomization = DomainRandConfig(
-                brightness_range=(1.0, 1.0), contrast_range=(1.0, 1.0),
-                blur_sigma_max=0.0, blur_prob=0.0,
-            )
+            self.sim_config.domain_randomization = None
         self._init_env()
 
     def _on_speed_change(self, value) -> None:
@@ -692,9 +693,12 @@ class InferencePanel:
 
         display = self._draw_overlays(self.obs.copy())
 
-        # Scale up for visibility (224 -> 448)
+        # Scale to fit display area (target ~500px height)
         h, w = display.shape[:2]
-        display = cv2.resize(display, (w * 2, h * 2), interpolation=cv2.INTER_NEAREST)
+        target_h = 500
+        scale = target_h / h
+        new_w, new_h = int(w * scale), int(h * scale)
+        display = cv2.resize(display, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
         # BGR -> RGB -> PIL -> ImageTk
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
