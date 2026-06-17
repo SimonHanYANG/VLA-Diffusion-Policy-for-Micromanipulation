@@ -40,6 +40,7 @@ class DiffusionPolicy(nn.Module):
         num_diffusion_steps: int = 100,
         num_ddim_steps: int = 10,
         beta_schedule: str = "cosine",
+        action_scale: float = 90.0,
     ):
         super().__init__()
 
@@ -47,6 +48,7 @@ class DiffusionPolicy(nn.Module):
         self.pred_horizon = pred_horizon
         self.action_dim = action_dim
         self.num_ddim_steps = num_ddim_steps
+        self.action_scale = action_scale  # Normalize actions to [-1, 1]
 
         # Modules
         self.visual_encoder = VisualEncoder(
@@ -99,8 +101,9 @@ class DiffusionPolicy(nn.Module):
         noise = torch.randn(B, self.action_dim, self.pred_horizon, device=device)
         t = torch.randint(0, self.noise_scheduler.num_train_steps, (B,), device=device)
 
-        # Forward diffusion
+        # Forward diffusion (normalize actions to [-1, 1])
         actions = action_seq.permute(0, 2, 1)  # (B, action_dim, horizon)
+        actions = actions / self.action_scale  # Normalize
         noisy_actions = self.noise_scheduler.add_noise(actions, noise, t)
 
         # Predict noise
@@ -148,4 +151,5 @@ class DiffusionPolicy(nn.Module):
 
         # x_t is now x_0: (B, action_dim, horizon)
         action_seq = x_t.permute(0, 2, 1)  # (B, horizon, action_dim)
+        action_seq = action_seq * self.action_scale  # Denormalize
         return action_seq
