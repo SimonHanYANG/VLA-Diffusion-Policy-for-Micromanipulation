@@ -8,6 +8,6 @@ target_params:
   label: "embryo"
   crop_margin: 5
   edge_blur_range: [0.8, 2.5]
-pid_kp: 0.5
-pid_ki: 0.01
-pid_kd: 0.1
+pid_kp: 0.3
+pid_ki: 0.005
+pid_kd: 0.05

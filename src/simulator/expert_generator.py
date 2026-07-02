@@ -145,7 +145,8 @@ class ExpertDemonstrationGenerator:
             action_noisy = action + noise
 
             # Clip action magnitude (scaled for resolution)
-            max_step = 30.0 * self.config.scale_factor
+            # For 640x640: scale_factor≈2.857, so max_step≈20px
+            max_step = 7.0 * self.config.scale_factor
             norm = np.linalg.norm(action_noisy)
             if norm > max_step:
                 action_noisy = action_noisy / norm * max_step

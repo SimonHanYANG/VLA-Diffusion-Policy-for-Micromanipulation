@@ -6,6 +6,6 @@ target_params:
   radius_max: 25.0
   ring_prob: 0.3
   ring_thickness: 3.0
-pid_kp: 0.5
-pid_ki: 0.01
-pid_kd: 0.1
+pid_kp: 0.3
+pid_ki: 0.005
+pid_kd: 0.05
